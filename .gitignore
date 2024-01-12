@@ -1,0 +1,6 @@
+**/.ipynb_checkpoints
+**/__pycache__
+.DS_store
+data/
+result/
+notebooks/debug
