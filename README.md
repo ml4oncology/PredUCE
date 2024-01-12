@@ -4,7 +4,7 @@ Build models to predict undeirable cancer events (i.e. symptom deterioration, em
 Pipelines for preparng data for model consumption, model training, and model evaluation. 
 
 # Data Location
-Please see [ml4oncology/make-clinical-dataset] (https://github.com/ml4oncology/make-clinical-dataset)
+Please see [ml4oncology/make-clinical-dataset](https://github.com/ml4oncology/make-clinical-dataset).
 
 # How to Contribute
 1. Create a new feature branch
