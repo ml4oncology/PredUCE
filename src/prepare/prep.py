@@ -7,6 +7,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 import pandas as pd
 
+from .engineer import collapse_rare_categories
 from .. import logger
 from ..constants import drug_cols, lab_cols, lab_change_cols, symp_cols, symp_change_cols
 
@@ -68,96 +69,18 @@ class OneHotEncoder:
         # function to get the indicator columns of a categorical feature
         self.get_indcols = lambda cols, feat: cols[cols.str.startswith(feat)]
         
-    def separate_regimen_sets(
-        self, 
-        data: pd.DataFrame, 
-        verbose: bool = True
-    ) -> pd.DataFrame:
-        """For regimens, some categories represent a regimen set (different 
-        treatments taken concurrently/within a short span of time). Create
-        separate columns for each regimen in the set. If those columns already
-        exists, combine them together.
-        
-        E.g.
-        regimen_A  regimen_B  regimen_A && regimen_B && regimen_C
-        True       False      False 
-        False      True       False 
-        False      False      True    
-        False      False      False
-        
-        regimen_A  regimen_B  regimen_C
-        True       False      False
-        False      True       False
-        True       True       True
-        False      False      False
-        
-        Examples of A && B
-        1. LU-ATEZOLIZU (COMPASS) && LU-ETOPCARBO
-        2. GI-GEM+ABRAXANE && LU-PEMBROLIZUMAB
-        """
-        cols = self.get_indcols(data.columns, 'regimen_')
-        drop_cols = []
-        for col, mask in data[cols].items():
-            regimens = col.replace('regimen_', '').split(' && ')
-            if len(regimens) == 1: 
-                continue
-
-            for regimen in regimens:
-                regimen_col = f'regimen_{regimen}'
-                data[regimen_col] = data.get(regimen_col, 0) | mask
-            drop_cols.append(col)
-        data = data.drop(columns=drop_cols)
-        
-        if verbose:
-            mask = self.get_indcols(data.columns, 'regimen_').isin(cols)
-            msg = (f'Separated and dropped {len(drop_cols)} treatment set '
-                   f'indicator columns, and added {sum(~mask)} new treatment '
-                   'indicator columns')
-            logger.info(msg)
-        
-        return data
-        
-    def encode(
-        self, 
-        data: pd.DataFrame, 
-        separate_regimen_sets: bool = True, 
-        verbose: bool = True
-    ) -> pd.DataFrame:
-        """
-        Args:
-            separate_regimen_sets (bool): If True, convert the regimen set 
-                (regimen_A && regimen_C) indicator column into its individual 
-                regimen (regimen_A, regimen_B) indicator columns (combine if 
-                already exists)
-        """        
+    def encode(self, data: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
         # one-hot encode categorical columns
         # use only the columns that exist in the data
         cols = [col for col in self.encode_cols if col in data.columns]
         data = pd.get_dummies(data, columns=cols)
         
-        if separate_regimen_sets:
-            data = self.separate_regimen_sets(data, verbose=verbose)
-        
         if self.final_columns is None:
-
-            # collapse rare regimens (less than 6 patients) into other
-            # TODO: modularize this
-            other_mask = False
-            drop_cols = []
-            for col in data.columns[data.columns.str.startswith('regimen')]:
-                mask = data[col].astype(bool) # TODO: make all the regimen indicator columns booleans by default...
-                if data.loc[mask, 'mrn'].nunique() < 6:
-                    drop_cols.append(col)
-                    other_mask |= mask
-            data = data.drop(columns=drop_cols)
-            data['regimen_other'] = other_mask.astype(int)
-            print(f'Reassigning the following indicators with less than 6 patients as other: {drop_cols}')
-            
+            data = collapse_rare_categories(data, catcols=['regimen']) # collapse rare regimens into 'Other' category
             self.final_columns = data.columns
             return data
         
-        # reassign any indicator columns that did not exist in final columns
-        # as other
+        # reassign any indicator columns that did not exist in final columns as other
         for feature in cols:
             indicator_cols = self.get_indcols(data.columns, feature)
             extra_cols = indicator_cols.difference(self.final_columns)
@@ -177,10 +100,7 @@ class OneHotEncoder:
         # fill in any missing columns
         missing_cols = self.final_columns.difference(data.columns)
         # use concat instead of data[missing_cols] = 0 to prevent perf warning
-        data = pd.concat([
-            data,
-            pd.DataFrame(0, index=data.index, columns=missing_cols)
-        ], axis=1)
+        data = pd.concat([data, pd.DataFrame(0, index=data.index, columns=missing_cols)], axis=1)
         
         return data
     
