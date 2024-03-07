@@ -1,10 +1,26 @@
 import itertools
 import multiprocessing as mp
+import pickle
 
 import numpy as np
 import pandas as pd
 
 from . import logger
+
+###############################################################################
+# I/O
+###############################################################################
+def load_pickle(save_dir, filename, err_msg=None):
+    filepath = f'{save_dir}/{filename}.pkl'
+    with open(filepath, 'rb') as file:
+        output = pickle.load(file)
+    return output
+
+
+def save_pickle(result, save_dir, filename):
+    filepath = f'{save_dir}/{filename}.pkl'
+    with open(filepath, 'wb') as file:    
+        pickle.dump(result, file)
 
 ###############################################################################
 # Multiprocessing
@@ -54,7 +70,6 @@ def get_nunique_categories(df: pd.DataFrame) -> pd.DataFrame:
 def get_nmissing(df: pd.DataFrame) -> pd.DataFrame:
     missing = df.isnull().sum() # number of nans for each column
     missing = missing[missing != 0] # remove columns without missing values
-    missing = missing[~missing.index.str.endswith('_date')] # remove date columns
     missing = pd.DataFrame(missing, columns=['Missing (N)'])
     missing['Missing (%)'] = (missing['Missing (N)'] / len(df) * 100).round(3)
     return missing.sort_values(by='Missing (N)')

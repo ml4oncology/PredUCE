@@ -15,8 +15,8 @@ from ..constants import lab_cols, lab_change_cols, symp_cols, symp_change_cols
 ###############################################################################
 def get_change_since_prev_session(df: pd.DataFrame) -> pd.DataFrame:
     """Get change since last session"""
-    cols = symp_cols + lab_cols
-    change_cols = symp_change_cols + lab_change_cols
+    cols = symp_cols + lab_cols + ['patient_ecog']
+    change_cols = symp_change_cols + lab_change_cols + ['patient_ecog_change']
     result = []
     for mrn, group in tqdm(df.groupby('mrn')):
         change = group[cols] - group[cols].shift()

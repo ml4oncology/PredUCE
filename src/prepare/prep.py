@@ -16,7 +16,7 @@ class Imputer:
     def __init__(self):
         self.impute_cols = {
             'mean': lab_cols.copy() + lab_change_cols.copy(), 
-            'most_frequent': symp_cols.copy() + symp_change_cols.copy(),
+            'most_frequent': symp_cols.copy() + symp_change_cols.copy() + ['patient_ecog', 'patient_ecog_change'],
             'median': []
         }
         self.imputer = {'mean': None, 'most_frequent': None, 'median': None}
@@ -206,6 +206,8 @@ class PrepData:
             'days_since_last_treatment',
             'num_prior_EDs_within_5_years',
             'days_since_prev_ED',
+            'patient_ecog',
+            'patient_ecog_change'
         ] + symp_cols + lab_cols + drug_cols + lab_change_cols + symp_change_cols
         self.clip_cols = [
             'height',
