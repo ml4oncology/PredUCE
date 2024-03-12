@@ -30,7 +30,7 @@ def get_label_distribution(
                 count[0][target] = mrn.nunique() - count[1][target]
             dists[split] = pd.DataFrame(count).T
     elif with_respect_to == 'sessions':
-        dists = {split: group.apply(pd.value_counts) 
+        dists = {split: group.apply(lambda x: x.value_counts()) 
                  for split, group in Y.groupby(metainfo['split'])}
     dists['Total'] = dists['Train'] + dists['Valid'] + dists['Test']
     dists = pd.concat(dists).T
