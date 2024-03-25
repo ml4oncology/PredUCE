@@ -2,13 +2,15 @@
 Module to engineer features
 """
 from collections.abc import Sequence
+import logging
 
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
 
-from .. import logger
 from ..constants import lab_cols, lab_change_cols, symp_cols, symp_change_cols
+
+logger = logging.getLogger(__name__)
 
 ###############################################################################
 # Engineering Features
