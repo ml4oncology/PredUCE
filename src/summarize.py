@@ -13,50 +13,61 @@ def pre_and_post_treatment_missingness_summary(
     pretreatment_cols: list[str], 
     posttreatment_cols: list[str], 
     event_cols: list[str], 
-    print_desc: bool = True
 ) -> pd.DataFrame:
     """Creates a summary table of the following:
 
-        Missingness_b: proportion of treatments where the post-treatment target is measured but pre-treatment feature is not measured
-        Missingness_c: proportion of treatments where the pre-treatment feature is measured but the post-treatment target is not measured
-        Rate_d: proportion of treatments followed by the event, when the pre-treatment feature and post-treatment target is measured
-            - well, by default both must be measured if the event occured
-        Missingness_e: the proportion of patients with at least one no target measurement
-        Rate_f: proportion of patients with at least one treatment followed by an event, among patients who have at least one target measurement.
+        any_missingness_trt: 
+            proportion (No, %) of treatments where the pre- and/or post-treatment symptom score was not measured
+        target_missingness_trt: 
+            proportion (No, %) of treatments where the post-treatment target is not measured, when the pre-treatment 
+            feature is measured
+        event_rate_trt: 
+            proportion (No, %) of treatments followed by the event, when the pre-treatment feature and post-treatment 
+            target is measured
+        any_missingness_mrn: 
+            proportion (No, %) of patients with at least one treatment with any missingness
+        event_rate_mrn: 
+            proportion (No, %) of patients with at least one treatment followed by an event, among patients who have at
+            least one target measurement
     """
-    n_total_patients = df['mrn'].nunique()
     result = {}
     for pre_col, post_col, event_col in zip(pretreatment_cols, posttreatment_cols, event_cols):
-        posttreatment_exists = df[pre_col].notnull()
-        pretreatment_exists = df[post_col].notnull()
+        pretreatment_exists = df[pre_col].notnull()
+        posttreatment_exists = df[post_col].notnull()
         event_occured = df[event_col] == 1
         result[pre_col] = {
-            'Missingness_b': (posttreatment_exists & ~pretreatment_exists).sum(), 
-            'Missingness_c': ( ~posttreatment_exists & pretreatment_exists).sum(), 
-            'Rate_d': event_occured.sum(), 
-            'Missingness_e': (~posttreatment_exists).groupby(df['mrn']).any().sum(), 
-            'num_patients_with_event': df.loc[event_occured, 'mrn'].nunique(), 
-            'num_patients_with_post': df.loc[posttreatment_exists, 'mrn'].nunique()
+            # any missingness of treatments
+            'num_trts_without_pre_or_post': (~posttreatment_exists | ~pretreatment_exists).sum(),
+
+            # target missingness of treatments
+            'num_trts_with_pre_and_without_post': (~posttreatment_exists & pretreatment_exists).sum(), 
+            'num_trts_with_pre': pretreatment_exists.sum(),
+
+            # event rate of treatments
+            'num_trts_with_event': event_occured.sum(), 
+            'num_trts_with_pre_and_post': (pretreatment_exists & posttreatment_exists).sum(),
+
+            # any missingness of patients
+            'num_mrns_without_pre_or_post': df.loc[(~posttreatment_exists | ~pretreatment_exists), 'mrn'].nunique(), 
+            
+            # event rate of patients
+            'num_mrns_with_event': df.loc[event_occured, 'mrn'].nunique(), 
+            'num_mrns_with_post': df.loc[posttreatment_exists, 'mrn'].nunique(),
         }
     result = pd.DataFrame(result).T
+    # NOTE: the reason I store the numerator and denominator separately is to compute the mean easier
     result.loc['Mean'] = result.mean().astype(int)
 
-    # add the percentages
-    add_perc = lambda df, N: df.astype(str) + ' (' + (df / N * 100).round(1).astype(str) + ')'
-    result[['Missingness_b', 'Missingness_c', 'Rate_d']] = add_perc(result[['Missingness_b', 'Missingness_c', 'Rate_d']], N=len(df))
-    result['Missingness_e'] = add_perc(result['Missingness_e'], N=n_total_patients)
-    result['Rate_f'] = add_perc(result['num_patients_with_event'], N=result['num_patients_with_post'])
-    result = result.drop(columns=['num_patients_with_event', 'num_patients_with_post'])
+    # calculate the proportion
+    def calc(numerator, denominator): 
+        return numerator.astype(str) + ' (' + (numerator / denominator * 100).round(1).astype(str) + ')'
+    
+    result['any_missingness_trt'] = calc(result['num_trts_without_pre_or_post'], len(df))
+    result['target_missingness_trt'] = calc(result['num_trts_with_pre_and_without_post'], result['num_trts_with_pre'])
+    result['event_rate_trt'] = calc(result['num_trts_with_event'], result['num_trts_with_pre_and_post'])
+    result['any_missingness_mrn'] = calc(result['num_mrns_without_pre_or_post'], df['mrn'].nunique())
+    result['event_rate_mrn'] = calc(result['num_mrns_with_event'], result['num_mrns_with_post'])
 
-    # add a second level
-    result.columns = [[f'Treatment (N={len(df)})',]*3 + [f'Patient level (N={n_total_patients})',]*2, result.columns]
-
-    if print_desc:
-        print("Missingness_b: proportion of treatments where the post-treatment target is measured but pre-treatment feature is not measured")
-        print("Missingness_c: proportion of treatments where the pre-treatment feature is measured but the post-treatment target is not measured")
-        print("Rate_d: proportion of treatments followed by the event, when the pre-treatment feature and post-treatment target is measured")
-        print("Missingness_e: the proportion of patients with at least one no target measurement")
-        print("Rate_f: proportion of patients with at least one treatment followed by an event, among patients who have at least one target measurement.")
     return result
 
 
