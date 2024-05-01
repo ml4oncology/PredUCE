@@ -94,7 +94,7 @@ def get_excluded_numbers(df, mask: pd.Series, context: str = '.') -> None:
 
 
 ###############################################################################
-# Plotting and data analysis
+#  Data manipulation
 ###############################################################################
 
 def calculate_mean_cal_error(prob_true, prob_pred, n_bins=10):
