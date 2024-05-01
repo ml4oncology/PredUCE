@@ -2,6 +2,7 @@
 import os
 from functools import reduce
 
+os.environ['OUTDATED_IGNORE'] = '1'
 # Third-party imports
 import numpy as np
 import pandas as pd
