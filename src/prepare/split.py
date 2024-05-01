@@ -1,10 +1,12 @@
 """
 Module to split the data
 """
+import logging
+
 from sklearn.model_selection import GroupShuffleSplit
 import pandas as pd
 
-from .. import logger
+logger = logging.getLogger(__name__)
 
 # Data splitting
 def create_train_val_test_splits(

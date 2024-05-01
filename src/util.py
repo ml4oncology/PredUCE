@@ -1,5 +1,7 @@
 import itertools
+import logging
 import multiprocessing as mp
+import os
 import pickle
 from . import logger
 
@@ -19,20 +21,29 @@ from torch.utils.data import DataLoader
 from src.train import EHRDataset, pad_collate
 from src.eval import calculate_event_metrics
 
+logger = logging.getLogger(__name__)
+
 ###############################################################################
 # I/O
 ###############################################################################
-def load_pickle(save_dir, filename, err_msg=None):
+def load_pickle(save_dir: str, filename: str, err_msg=None):
     filepath = f'{save_dir}/{filename}.pkl'
     with open(filepath, 'rb') as file:
         output = pickle.load(file)
     return output
 
 
-def save_pickle(result, save_dir, filename):
+def save_pickle(result, save_dir: str, filename: str):
     filepath = f'{save_dir}/{filename}.pkl'
     with open(filepath, 'wb') as file:    
         pickle.dump(result, file)
+
+
+def initialize_folders():
+    main_folders = ['logs', 'models', 'result/tables']
+    for folder in main_folders:
+        if not os.path.exists(f'./{folder}'):
+            os.makedirs(f'./{folder}')
 
 ###############################################################################
 # Multiprocessing

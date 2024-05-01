@@ -2,5 +2,7 @@
 **/__pycache__
 .DS_store
 data/
+logs/
+models/
 result/
 notebooks/debug
