@@ -82,8 +82,8 @@ data_path_dict = {
     # Train results, features file, and odds ratio file
     "train_results": "./model_results/train_results.pkl",
     "features_file": "./data/features_list.xlsx",
-    "odd_ratio_file": "./data/odds_ratio_analysis.csv",
-    'ed_association': "./data/ed_death_association.pkl",
+    "ed_odd_ratio_file": "./data/alarms_ed.csv",
+    "symptoms_odd_ratio_file": "./data/alarms_symptoms.csv",
 
     # SHAP value plot save path
     "plots_save_path": "./plots",

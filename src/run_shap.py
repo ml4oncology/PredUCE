@@ -15,7 +15,7 @@ def generate_shap_plots(shap_dict, labels_list, save_path):
     - labels_list (list): List of labels for which to generate plots.
     - save_path (str): Path to the directory where plots will be saved.
     """
-    # Ensure the directory exists
+
     os.makedirs(save_path, exist_ok=True)
     plt.style.use('seaborn-whitegrid')
 
@@ -56,9 +56,6 @@ def generate_shap_plots(shap_dict, labels_list, save_path):
 
 
 def load_results(file_path):
-    """
-    Custom loading function to handle unpickling with missing modules gracefully.
-    """
     class IgnoreMissingModuleUnpickler(dill.Unpickler):
         def find_class(self, module, name):
             try:
@@ -138,7 +135,7 @@ def shap_plots(plot_path, legend_order, label_mapping, plot_type="layered_violin
             axs[i].axis('off')  # Hide axes
 
             # Place the title using text to manually position it
-            axs[i].text(0.6, 1.1, converted_label, transform=axs[i].transAxes, ha="center", va="top", fontsize=16)
+            axs[i].text(0.8, 0.95, converted_label, transform=axs[i].transAxes, ha="center", va="top", fontsize=16)
         except FileNotFoundError:
             print(f"File not found: {img_path}")
             continue

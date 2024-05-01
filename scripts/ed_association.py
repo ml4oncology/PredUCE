@@ -2,11 +2,12 @@ import argparse
 import pickle
 import dill
 import pandas as pd
-from src.utility import process_results
+
+from src.util import process_results
 from src.run_shap import load_results
 
 from src.config import data_path_dict
-# Assuming process_results and other necessary imports are defined here
+
 
 def main(train_results_path, test_df_path, output_file_path):
 
@@ -51,4 +52,4 @@ if __name__ == "__main__":
     main(args.train_results_path, args.test_df_path, args.output_file_path)
 
     # print success message
-    print("ED and Death Associations processed successfully!")
+    print("ED Associations processed successfully!")

@@ -20,7 +20,6 @@ from torch.utils.data import DataLoader
 import shap
 import pingouin as pg
 
-# Local application/library specific imports
 from src.train import EHRDataset, pad_collate
 
 
@@ -133,144 +132,6 @@ def plot_repeated_corr_matrix(df, labels_list, label_mapping, legend_order, subs
 
     return corr_matrix
 
-
-def find_threshold_for_alarm_rate(y_labels, y_preds, target_alarm_rate=0.1, search_steps=1000):
-    best_threshold = None
-    previous_alarm_rate = None
-    previous_threshold = None
-
-    for threshold in np.linspace(0, 1, search_steps):
-        # if the dimension of y_pred >1, then we need to check if any of the columns is >= threshold
-        if y_preds.ndim > 1:
-            y_pred = (y_preds >= threshold).any(axis=1).astype(int)
-        else:
-            y_pred = (y_preds >= threshold).astype(int)
-
-        _, fp, _, tp = confusion_matrix(y_labels, y_pred).ravel()
-        alarm_rate = (tp + fp) / len(y_labels)
-
-        if alarm_rate <= target_alarm_rate:
-            current_diff = abs(target_alarm_rate - alarm_rate)
-            previous_diff = abs(target_alarm_rate - previous_alarm_rate) if previous_alarm_rate is not None else float('inf')
-            best_threshold = threshold if current_diff < previous_diff else previous_threshold
-        else:
-            previous_threshold = threshold
-            previous_alarm_rate = alarm_rate
-
-    return best_threshold
-
-
-def process_results(results_df, test_df, labels_list, model_name, target_label, threshold=None,palliative = False):
-    """
-    Process the prediction results from a specified model for each label in the labels_list,
-    binarize the predictions based on a threshold, and return a list of DataFrames containing
-    the results for each label.
-    """
-    final_df_dict = {}
-    # Filter once for the specified model
-    model_results = results_df[results_df['model'] == model_name]
-
-    for label in labels_list:
-        # Filter for the current label
-        label_results = model_results[model_results['label'] == label]
-
-        if label_results.empty:
-            print(f"No results found for model {model_name} and label {label}.")
-            continue
-
-        # Extract predictions and labels
-        model_preds = label_results['all_preds'].iloc[0]
-        model_labels = label_results['all_labels'].iloc[0]
-
-        # Find the threshold for binary classification if not provided
-        label_threshold = threshold if threshold is not None else find_threshold_for_alarm_rate(model_labels, model_preds, target_alarm_rate=0.1, search_steps=1000)
-        # print(f"Threshold for {label}: {label_threshold}")
-
-        # Binarize the predictions based on the threshold
-        binary_preds = np.where(model_preds >= label_threshold, 1, 0)
-
-        # Create a DataFrame from the predictions and labels
-        preds_df = pd.DataFrame({'Label': model_labels, f'{label}_Pred': binary_preds})
-
-
-        aligned_df = test_df[test_df[label].isin([0, 1])].reset_index(drop=True)
-        # Align and join DataFrames
-        aligned_df = aligned_df.join(preds_df)
-
-        # Filter based on the target label
-        aligned_df = aligned_df[aligned_df[target_label].isin([0, 1])]
-
-        # Verify label consistency and keep necessary columns
-        aligned_df[label] = aligned_df[label].astype(int)  # Convert columns to int for comparison
-        aligned_df['Label'] = aligned_df['Label'].astype(int)
-        if aligned_df[label].equals(aligned_df['Label']):
-
-            # iF PALIATIVE IS TRUE, FILTER FOR PALLIATIVE PATIENTS
-            if palliative == True:
-                aligned_df = aligned_df[aligned_df['PALLIATIVE'] == 1]
-            aligned_df = aligned_df[['PatientID','Trt_Date', target_label, f'{label}_Pred']]
-
-            # Add 'Time' column which enumerates the visits per patient
-            aligned_df['Time'] = aligned_df.groupby('PatientID').cumcount() + 1
-
-            # Add this DataFrame to the final_df_dict
-            final_df_dict[(model_name, label, target_label)] = aligned_df
-            # Store the threshold for the model
-            final_df_dict[(model_name, label, 'threshold')] = label_threshold
-        else:
-            print(f"Labels do NOT match for {label}.")
-
-    return final_df_dict
-
-
-def get_merge_df(results_df, test_df, labels_list, model_name,alarm_rate=0.1):
-    """
-    Find the threshold that achieves a 10% alarm rate across all events and return the merge df.
-
-    Parameters:
-    results_df (pd.DataFrame): DataFrame containing the results.
-    test_df (pd.DataFrame): DataFrame containing the test data.
-    labels_list (list): List of labels to consider.
-    model_name (str): The name of the model to filter results for.
-
-    Returns:
-    pd.DataFrame: A DataFrame with predictions merged and a new 'any_symptoms' column.
-    """
-
-    model_results = results_df[results_df['model'] == model_name]
-    predict = []
-
-    # Loop over all labels in labels_list
-    for label in labels_list:
-        # Filter the DataFrame to only include rows where the label is not -1
-        filtered_df = test_df[test_df[label] != -1].copy()
-
-        label_results = model_results[model_results['label'] == label]
-        # prediction = label_results['all_preds'].iloc[0][0]
-        prediction = label_results['all_preds'].iloc[0]
-
-        pred_name = label + '_prediction'
-        # Add the prediction column to the DataFrame
-        filtered_df[pred_name] = prediction
-        predict.append(filtered_df)
-
-    # Get column names excluding the last one from the first dataframe
-    merge_cols = predict[0].columns.tolist()[:-1]
-    # Perform the merge operation
-    merged_df = reduce(lambda left, right: pd.merge(left, right, on=merge_cols, how='inner'), predict)
-
-    # Create a new column 'any_symptoms' that is 1 if any of the labels is 1, and 0 otherwise
-    merged_df['any_symptoms'] = merged_df[labels_list].apply(lambda row: int(any(row)), axis=1)
-    y_labels = merged_df['any_symptoms'].values
-    prediction_columns = [col for col in merged_df.columns if col.endswith('prediction')]
-    y_preds = merged_df[prediction_columns].values
-
-    threshold = find_threshold_for_alarm_rate(y_labels, y_preds, target_alarm_rate=alarm_rate)
-    print(f"The threshold that achieves a 10% alarm rate is {threshold}")
-
-    return merged_df,threshold
-
-
 def calculate_event_metrics(results_df, test_df, labels_list, model_name, label_mapping, legend_order, threshold=None, choice='per_event'):
     """
     Calculate metrics for a 10% alarm rate either per event or for all events.
@@ -366,10 +227,6 @@ def analyze_model_performance(results_df, labels_list, model_name):
         # Filter for the current label
         label_results = model_results[model_results['label'] == label]
 
-        # Extract predictions and labels
-        # model_preds = label_results['all_preds'].iloc[0][0]
-        # model_labels = label_results['all_labels'].iloc[0][0]
-
         model_preds = label_results['all_preds'].iloc[0]
         model_labels = label_results['all_labels'].iloc[0]
 
@@ -464,8 +321,6 @@ def plot_performance_curves(metrics, labels_list, label_mapping, legend_order, c
     ax.tick_params(axis='both', which='both', length=0)
     plt.grid(False)
     plt.show()
-
-
 
 
 def calculate_mean_cal_error(prob_true, prob_pred, n_bins=10):
@@ -596,40 +451,61 @@ def plot_ecdf(merge_df, label_mapping, legend_order, colors):
     plt.show()
 
 
+def find_largest_threshold_interval(df):
+    sorted_df = df.sort_values(by='Threshold')
+    interval_list = []
+
+    i = 0
+    while i < len(sorted_df):
+        if sorted_df['System'].iloc[i] > sorted_df['All'].iloc[i] and sorted_df['System'].iloc[i] >= 0:
+            start = sorted_df['Threshold'].iloc[i]
+            end = start
+
+            j = i + 1
+            while j < len(sorted_df) and sorted_df['System'].iloc[j] > sorted_df['All'].iloc[j] and sorted_df['System'].iloc[j] > 0:
+                end = sorted_df['Threshold'].iloc[j]
+                j += 1
+
+            interval_list.append((start, end))
+            i = j
+        else:
+            i += 1
+
+    if not interval_list:
+        return None
+
+    # Find the largest interval by comparing their lengths
+    largest_interval = max(interval_list, key=lambda x: x[1]-x[0])
+    return largest_interval
+
 def plot_net_benefit_curves(net_benefit_df_list, labels_list, label_mapping, legend_order, colors):
-    """
-    Plots a 3x3 grid of net benefit curves for a list of dataframes corresponding to different labels.
-
-    Parameters:
-    net_benefit_df_list (list of pd.DataFrame): List of dataframes containing net benefit calculations.
-    labels_list (list of str): List of labels corresponding to the dataframes.
-    """
-    # Reorder labels_list according to legend_order
     ordered_labels = [label for name in legend_order for label in labels_list if label_mapping.get(label) == name]
+    fig, axes = plt.subplots(nrows=3, ncols=3, figsize=(15, 15))
+    axes = axes.flatten()
+    all_target_intervals = {}
 
-    # Create a 3x3 grid of subplots
-    fig, axes = plt.subplots(nrows=3, ncols=3, figsize=(15, 15))  # Adjust size as needed
-    axes = axes.flatten()  # Flatten the 2D array of axes
 
     for i, label in enumerate(ordered_labels):
         df = net_benefit_df_list[labels_list.index(label)]
+        largest_interval = find_largest_threshold_interval(df)
+
         mapped_label = label_mapping.get(label)
         ax = axes[i]
 
-        y_max = df[['System', 'All']].max().max()  # Get the maximum y-value for setting the ylim later
+        y_max = df[['System', 'All']].max().max()
         thresh = df['Threshold'].values
 
-        # Plot system line
         ax.plot(thresh, df['System'], label=mapped_label, color=colors[i])
-
-        # Plot All line
         ax.plot(thresh, df['All'], label='All', color='black')
-
         ax.plot(thresh, np.zeros(thresh.shape), label='None', color='black', linestyle='--')
 
-        # Set the limits and labels for the plot
-        xlim = [np.min(thresh), np.max(thresh)]
-        ax.set(xlabel='Threshold Probability', ylabel='Net Benefit', xlim=xlim, ylim=(-y_max/4, y_max*1.1))
+        # if largest_interval is not None:
+        #     print(f"Optimal interval for {mapped_label}: {largest_interval}")
+        all_target_intervals.update({mapped_label: largest_interval})
+
+            # ax.axvspan(largest_interval[0], largest_interval[1], color=colors[i], alpha=0.3, label='Optimal Interval')
+
+        ax.set(xlabel='Threshold Probability', ylabel='Net Benefit', xlim=(thresh.min(), thresh.max()), ylim=(-y_max/4, y_max*1.1))
         ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:.2f}'))
         ax.legend(frameon=False)
         ax.spines['top'].set_visible(False)
@@ -639,59 +515,13 @@ def plot_net_benefit_curves(net_benefit_df_list, labels_list, label_mapping, leg
         ax.set_facecolor('white')
         ax.grid(False)
 
-    # Adjust layout
+    # find the widest and narrowest interval in all_target_intervals and its corresponding labels
+    widest_interval = max(all_target_intervals.items(), key=lambda x: x[1][1] - x[1][0])
+    narrowest_interval = min(all_target_intervals.items(), key=lambda x: x[1][1] - x[1][0])
+    print(f"Widest interval: {widest_interval[0]} - {widest_interval[1]}")
+    print(f"Narrowest interval: {narrowest_interval[0]} - {narrowest_interval[1]}")
+
     plt.tight_layout()
-    plt.show()
-
-
-def plot_radar_chart(df, models, start_from=0.5, end_at=1.0, scale=0.1, rotation_degrees=0, label_font_size=10):
-    """
-    Plots a radar chart based on the given DataFrame for the specified models.
-
-    Parameters:
-    - df: DataFrame containing the data to plot.
-    - models: List of model names to include in the plot.
-    - start_from: The starting value for the center of the radar chart.
-    - end_at: The maximum value for the radar chart (optional).
-    - rotation_degrees: Degrees to rotate the radar chart.
-    - label_font_size: Font size for the category labels.
-    """
-
-    categories = list(df.index)
-    N = len(categories)
-
-    # Calculate the angle for each axis
-    angles = [n / float(N) * 2 * np.pi for n in range(N)]
-    angles += angles[:1]  # Ensure the plot is circular by duplicating the first value at the end
-
-    # Rotate the angles
-    rotation_radians = np.deg2rad(rotation_degrees)
-    angles = [(angle + rotation_radians) % (2 * np.pi) for angle in angles]
-
-    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
-    plt.xticks(angles[:-1], categories, size=label_font_size)
-
-    ax.set_rlabel_position(0)
-    if end_at is not None:
-        plt.yticks(np.arange(start_from, end_at, scale), color="grey", size=12)
-        plt.ylim(start_from, end_at)
-    else:
-        max_val = df.max().max()
-        plt.yticks(np.arange(start_from, max_val, scale), color="grey", size=12)
-        plt.ylim(start_from, max_val)
-
-    # for model in models:
-    #     values = df[model].values.flatten().tolist()
-    #     values += values[:1]
-    #     ax.plot(angles, values, linewidth=2, linestyle='solid', label=model)
-
-    for key,value in models.items():
-        values = df[key].values.flatten().tolist()
-        values += values[:1]
-        ax.plot(angles, values, linewidth=2, linestyle='solid', label=value)
-
-    plt.legend(loc='lower left', bbox_to_anchor=(-0.1, -0.08),fontsize=9,frameon=False)
-
     plt.show()
 
 def partial_predict(X,label,model_name,train_results,df,device):
@@ -887,11 +717,14 @@ def create_forest_plot(df, colors):
     # Add X-axis title
     ax.set_xlabel('Odds Ratio for Emergency Department Visits', fontsize=16, labelpad=20)
 
+    # Set the x-axis tick labels size
+    ax.tick_params(axis='x', labelsize=14)  # Increase fontsize for x-axis tick labels
+
     # Hide the axes frame
     ax.frame_on = False
 
     # Calculate positions for equal spacing
-    symptoms_position = -0.45
+    symptoms_position = -0.50
     odds_ratio_position = symptoms_position + 0.15  # Adjust spacing
     p_value_position = odds_ratio_position + 0.26  # Adjust spacing to ensure equal length
 
@@ -902,11 +735,10 @@ def create_forest_plot(df, colors):
         ax.text(p_value_position, i, f"{row['Pvalue_JAMA']}", ha='left', va='center', transform=ax.get_yaxis_transform(), fontsize=16)
 
     # Headers
-    headers = ["Symptoms", "Odds Ratio (95% CI)", "P Value"]
+    headers = ["Symptoms", "Odds Ratio(95% CI)", "P Value"]
     header_positions = [symptoms_position, odds_ratio_position, p_value_position]
     header_y_position = len(df) - 9.8  # Incremented by 0.5 to ensure it's above all text entries
     for header, pos in zip(headers, header_positions):
-        # add to the last position of ax
         ax.text(pos, header_y_position, header, ha='left', va='bottom', fontsize=16, transform=ax.get_yaxis_transform(), weight='bold')
 
     plt.show()
@@ -915,64 +747,6 @@ def create_forest_plot(df, colors):
 def make_legend_arrow(legend, orig_handle, xdescent, ydescent, width, height, fontsize):
     p = mpatches.FancyArrow(0, 0.5 * height, width * 0.8, 0, length_includes_head=True, head_width=0.75 * height, color=orig_handle.get_facecolor())
     return p
-
-def arrows_plot(dfs, colors, labels, start_values_list=None, invert_xaxis=False, show_text=True):
-    if len(dfs) == 1:
-        fig, ax = plt.subplots(figsize=(8, 6))
-        axes = [ax]  # Make it iterable
-    else:
-        fig, axes = plt.subplots(1, len(dfs), figsize=(14, 6))
-
-    legend_elements = []
-    for idx, df in enumerate(dfs):
-        ax = axes[idx] if len(dfs) > 1 else axes[0]
-        start_values = start_values_list[idx] if start_values_list else None
-
-        for i, row in df.iterrows():
-            start = start_values[i] if start_values else (1, row['Event Rate'])
-            end = (row['Sensitivity'], row['Precision'])
-            color = colors[i % len(colors)]
-
-            if show_text:
-                if row['Precision'] == 0:
-                    ppv_text = "N/A"
-                else:
-                    ppv_fold_increase = row['Precision'] / start[1]
-                    ppv_text = f"{ppv_fold_increase:.1f}"
-
-                ax.text(end[0], end[1] + 0.00003, ppv_text, color='black', ha='left', va='bottom')
-
-            arrow = mpatches.FancyArrowPatch(start, end, color=color, arrowstyle='-|>', mutation_scale=20, linewidth=2)
-            ax.add_patch(arrow)
-
-        ax.set_xlabel('Sensitivity')
-        ax.set_ylabel('Precision')
-        if invert_xaxis:
-            ax.invert_xaxis()
-
-        ax.set_facecolor('white')
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.set_xlim(auto=True)
-        ax.set_ylim(auto=True)
-
-        dummy_arrow = mpatches.FancyArrow(0, 0, 0.1 * 0.8, 0, color=color, transform=ax.transAxes, clip_on=False)
-        legend_elements.append((dummy_arrow, labels[i]))
-
-        ax.autoscale_view()
-        ax.grid(False)
-
-    if len(dfs) > 1:
-        legend_handles = [mpatches.FancyArrowPatch((0, 0), (0.1 * 0.8, 0), color=color, arrowstyle='-|>', mutation_scale=20) for color in colors]
-        axes[1].legend(legend_handles, labels, handler_map={mpatches.FancyArrowPatch: HandlerPatch(patch_func=make_legend_arrow)}, loc='center left', bbox_to_anchor=(1, 0.5), frameon=False, title='Target', fontsize=9)
-    else:
-        legend_handles = [mpatches.FancyArrowPatch((0, 0), (0.1 * 0.8, 0), color=color, arrowstyle='-|>', mutation_scale=20) for color in colors]
-        # ax.legend(legend_handles, labels, handler_map={mpatches.FancyArrowPatch: HandlerPatch(patch_func=make_legend_arrow)}, loc='upper right', frameon=False, fontsize=9)
-        ax.legend(legend_handles, labels, handler_map={mpatches.FancyArrowPatch: HandlerPatch(patch_func=make_legend_arrow)}, loc='center left', bbox_to_anchor=(1, 0.5), frameon=False, title='Target', fontsize=9)
-
-    plt.tight_layout()
-    plt.show()
-
 
 def prepare_event_rate_dfs(test_df, results_df, labels_list, model_type, label_mapping, legend_order, alarm_rate=0.1):
     # Calculate the event rates for test_df
@@ -989,7 +763,7 @@ def prepare_event_rate_dfs(test_df, results_df, labels_list, model_type, label_m
 
     # Prepare metrics dataframes
     merge_df, threshold = get_merge_df(results_df, test_df, labels_list, model_type, alarm_rate=alarm_rate)
-    table_per_event = calculate_event_metrics(results_df, test_df, labels_list, model_type, label_mapping, legend_order, choice='per_event')
+    table_per_event = calculate_event_metrics(results_df, test_df, labels_list, model_type, label_mapping, legend_order, choice='per_event',target_alarm_rate=alarm_rate)
     table_all_events = calculate_event_metrics(results_df, test_df, labels_list, model_type, label_mapping, legend_order, threshold=threshold, choice='all_events')
 
     # Prepare DataFrames for 10% alarm rate scenarios
@@ -998,13 +772,29 @@ def prepare_event_rate_dfs(test_df, results_df, labels_list, model_type, label_m
         'Threshold': table_per_event['Threshold'].to_list(),
         'Precision': table_per_event['Precision'].to_list(),
         'Sensitivity': table_per_event['Sensitivity'].to_list(),
+        'F1': table_per_event['F1'].to_list(),
         'Event Rate': ordered_event_rates
     })
 
+    # calculate alarm rate for each target under 10% all event
+    # Get all prediction columns, convert to binary, and compute alarm rates
+    binary_columns = [(col, (merge_df[col] >= threshold).astype(int)) for col in merge_df.columns if
+                      col.endswith('_prediction')]
+    alarm_rates = {col: binary.sum() / len(merge_df) for col, binary in binary_columns}
+
+    # Map the prediction column names to more readable labels and reorder according to legend_order
+    label_mapping_reversed = {v: k for k, v in label_mapping.items()}  # Reverse the label_mapping for easier access
+    ordered_alarm_rate_10_all_event = {label: alarm_rates[label_mapping_reversed[label] + '_prediction'] for label in legend_order
+                           if label_mapping_reversed[label] + '_prediction' in alarm_rates}
+    event_rate_10_all_event_list = list(ordered_alarm_rate_10_all_event.values())
+
     ten_percent_all_event_df = pd.DataFrame({
         'Event': legend_order,
+        'Threshold': table_all_events['Threshold'].to_list(),
+        'Alarm Rate': event_rate_10_all_event_list,
         'Precision': table_all_events['Precision'].to_list(),
-        'Sensitivity': table_all_events['Sensitivity'].to_list()
+        'Sensitivity': table_all_events['Sensitivity'].to_list(),
+        'F1': table_all_events['F1'].to_list(),
     })
 
     # Calculate start values for drawing arrows
@@ -1013,3 +803,302 @@ def prepare_event_rate_dfs(test_df, results_df, labels_list, model_type, label_m
                     for _, row in ten_percent_all_event_df.iterrows()]
 
     return merge_df, ten_percent_per_event_df, ten_percent_all_event_df, start_values
+
+
+def get_merge_df(results_df, test_df, labels_list, model_name,alarm_rate=0.1):
+    """
+    Find the threshold that achieves a 10% alarm rate across all events and return the merge df.
+
+    Parameters:
+    results_df (pd.DataFrame): DataFrame containing the results.
+    test_df (pd.DataFrame): DataFrame containing the test data.
+    labels_list (list): List of labels to consider.
+    model_name (str): The name of the model to filter results for.
+
+    Returns:
+    pd.DataFrame: A DataFrame with predictions merged and a new 'any_symptoms' column.
+    """
+
+    model_results = results_df[results_df['model'] == model_name]
+    predict = []
+
+    # Loop over all labels in labels_list
+    for label in labels_list:
+        # Filter the DataFrame to only include rows where the label is not -1
+        filtered_df = test_df[test_df[label] != -1].copy()
+
+        label_results = model_results[model_results['label'] == label]
+        # prediction = label_results['all_preds'].iloc[0][0]
+        prediction = label_results['all_preds'].iloc[0]
+
+        pred_name = label + '_prediction'
+        # Add the prediction column to the DataFrame
+        filtered_df[pred_name] = prediction
+        predict.append(filtered_df)
+
+    # Get column names excluding the last one from the first dataframe
+    merge_cols = predict[0].columns.tolist()[:-1]
+    # Perform the merge operation
+    merged_df = reduce(lambda left, right: pd.merge(left, right, on=merge_cols, how='inner'), predict)
+
+    # Create a new column 'any_symptoms' that is 1 if any of the labels is 1, and 0 otherwise
+    merged_df['any_symptoms'] = merged_df[labels_list].apply(lambda row: int(any(row)), axis=1)
+    y_labels = merged_df['any_symptoms'].values
+    prediction_columns = [col for col in merged_df.columns if col.endswith('prediction')]
+    y_preds = merged_df[prediction_columns].values
+
+    threshold = find_threshold_for_alarm_rate(y_labels, y_preds, target_alarm_rate=alarm_rate)
+    print(f"The threshold that achieves a {alarm_rate*100}% alarm rate is {threshold}")
+
+    return merged_df,threshold
+
+
+def calculate_event_metrics(results_df, test_df, labels_list, model_name, label_mapping, legend_order, threshold=None, choice='per_event',target_alarm_rate = 0.1):
+    """
+    Calculate metrics for a 10% alarm rate either per event or for all events.
+
+    Parameters:
+    results_df (pd.DataFrame): DataFrame containing the results.
+    test_df (pd.DataFrame): DataFrame containing the test data.
+    labels_list (list): List of labels to consider.
+    model_name (str): The name of the model to filter results for.
+    threshold (float): Optional threshold value for all events.
+    choice (str): 'per_event' for individual event threshold, 'all_events' for a common threshold.
+
+    Returns:
+    pd.DataFrame: A DataFrame with precision, recall, and F1 scores for each event.
+    """
+    event_results = []
+
+    for label in labels_list:
+        if choice == 'per_event':
+            # For 10% alarm rate per event
+            event_results.append(process_results(results_df, test_df, [label], model_name, label,target_alarm_rate=target_alarm_rate))
+        elif choice == 'all_events':
+            # For 10% alarm rate for all events
+            event_results.append(process_results(results_df, test_df, [label], model_name, label,threshold=threshold))
+        else:
+            raise ValueError("Choice must be 'per_event' or 'all_events'")
+
+    # Initialize an empty list to hold each row of the table
+    table_rows = []
+
+    for i, label in enumerate(labels_list):
+        pred_name = label + '_Pred'
+
+        # Extract the relevant data from the results
+        results = event_results[i]
+        threshold = results[(model_name, label, 'threshold')]
+        labels = results[(model_name, label, label)][label]
+        predictions = results[(model_name, label, label)][pred_name]
+
+        # Calculate the precision, sensitivity (recall), and F1 score
+        precision = precision_score(labels, predictions)
+        sensitivity = recall_score(labels, predictions)
+        f1 = f1_score(labels, predictions)
+
+        # Append the results for this label to the table_rows list
+        table_rows.append({
+            'Event': label,
+            'Threshold': threshold,
+            'Precision': precision,
+            'Sensitivity': sensitivity,
+            'F1': f1
+        })
+
+    # Create a DataFrame from the rows
+    results_table = pd.DataFrame(table_rows)
+
+    # Set the 'Event' column as the index
+    results_table.set_index('Event', inplace=True)
+
+    # Rename the index and columns according to label_mapping
+    results_table.index = results_table.index.map(label_mapping)
+    results_table = results_table.reindex(legend_order)
+
+    return results_table
+
+def process_results(results_df, test_df, labels_list, model_name, target_label, threshold=None,palliative = False,target_alarm_rate = 0.1):
+    """
+    Process the prediction results from a specified model for each label in the labels_list,
+    binarize the predictions based on a threshold, and return a list of DataFrames containing
+    the results for each label.
+    """
+    final_df_dict = {}
+    # Filter once for the specified model
+    model_results = results_df[results_df['model'] == model_name]
+
+    for label in labels_list:
+        # Filter for the current label
+        label_results = model_results[model_results['label'] == label]
+
+        if label_results.empty:
+            print(f"No results found for model {model_name} and label {label}.")
+            continue
+
+        # Extract predictions and labels
+        model_preds = label_results['all_preds'].iloc[0]
+        model_labels = label_results['all_labels'].iloc[0]
+
+        # Find the threshold for binary classification if not provided
+        label_threshold = threshold if threshold is not None else find_threshold_for_alarm_rate(model_labels, model_preds, target_alarm_rate=target_alarm_rate, search_steps=1000)
+        # print(f"Threshold for {label}: {label_threshold}")
+
+        # Binarize the predictions based on the threshold
+        binary_preds = np.where(model_preds >= label_threshold, 1, 0)
+
+        # Create a DataFrame from the predictions and labels
+        preds_df = pd.DataFrame({'Label': model_labels, f'{label}_Pred': binary_preds})
+
+
+        aligned_df = test_df[test_df[label].isin([0, 1])].reset_index(drop=True)
+        # Align and join DataFrames
+        aligned_df = aligned_df.join(preds_df)
+
+        # Filter based on the target label
+        aligned_df = aligned_df[aligned_df[target_label].isin([0, 1])]
+
+        # Verify label consistency and keep necessary columns
+        aligned_df[label] = aligned_df[label].astype(int)  # Convert columns to int for comparison
+        aligned_df['Label'] = aligned_df['Label'].astype(int)
+        if aligned_df[label].equals(aligned_df['Label']):
+
+            # iF PALIATIVE IS TRUE, FILTER FOR PALLIATIVE PATIENTS
+            if palliative == True:
+                aligned_df = aligned_df[aligned_df['PALLIATIVE'] == 1]
+            aligned_df = aligned_df[['PatientID','Trt_Date', target_label, f'{label}_Pred']]
+
+            # Add 'Time' column which enumerates the visits per patient
+            aligned_df['Time'] = aligned_df.groupby('PatientID').cumcount() + 1
+
+            # Add this DataFrame to the final_df_dict
+            final_df_dict[(model_name, label, target_label)] = aligned_df
+            # Store the threshold for the model
+            final_df_dict[(model_name, label, 'threshold')] = label_threshold
+        else:
+            print(f"Labels do NOT match for {label}.")
+
+    return final_df_dict
+
+
+def find_threshold_for_alarm_rate(y_labels, y_preds, target_alarm_rate=0.1, search_steps=3000):
+    best_threshold = 0
+    closest_alarm_rate_diff = float('inf')
+    closest_alarm_rate = 0
+
+    for threshold in np.linspace(0, 1, search_steps):
+        y_pred = (y_preds >= threshold).astype(int) if y_preds.ndim == 1 else (y_preds >= threshold).any(axis=1).astype(int)
+        tn, fp, fn, tp = confusion_matrix(y_labels, y_pred).ravel()
+        alarm_rate = (tp + fp) / len(y_labels)
+        current_diff = abs(target_alarm_rate - alarm_rate)
+
+        # Ensure TP is not zero and the current difference is smaller than any previously found
+        if current_diff < closest_alarm_rate_diff and tp > 0:
+            closest_alarm_rate_diff = current_diff
+            best_threshold = threshold
+            closest_alarm_rate = alarm_rate
+
+    print(f"Best threshold: {best_threshold} with alarm rate: {closest_alarm_rate}, TP: {tp}")
+    return best_threshold
+
+
+def arrows_plot(dfs, colors, labels, start_values_list=None, invert_xaxis=False, show_text=True, ed_odds_ratio=None):
+    if len(dfs) == 1:
+        fig, ax = plt.subplots(figsize=(6, 6))
+        axes = [ax]  # Make it iterable
+    else:
+        fig, axes = plt.subplots(1, len(dfs), figsize=(14, 6))
+
+    for idx, df in enumerate(dfs):
+        ax = axes[idx] if len(dfs) > 1 else axes[0]
+        start_values = start_values_list[idx] if start_values_list else None
+
+        for i, row in df.iterrows():
+            start = start_values[i] if start_values else (1, row['Event Rate'])
+            end = (row['Sensitivity'], row['Precision'])
+            color = colors[i % len(colors)]
+
+            if show_text:
+                if row['Precision'] == 0:
+                    ppv_text = "N/A"
+                else:
+                    ppv_fold_increase = row['Precision'] / start[1]
+                    ppv_text = f"{ppv_fold_increase:.1f}"
+                ax.text(end[0], end[1] + 0.00003, ppv_text, color='black', ha='left', va='bottom')
+
+            arrow = mpatches.FancyArrowPatch(start, end, color=color, arrowstyle='-|>', mutation_scale=20, linewidth=2)
+            ax.add_patch(arrow)
+
+        ax.set_xlabel('Sensitivity')
+        ax.set_ylabel('Precision')
+        if invert_xaxis:
+            ax.invert_xaxis()
+
+        ax.set_facecolor('white')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_xlim(auto=True)
+        ax.set_ylim(auto=True)
+        ax.autoscale_view()
+        ax.grid(False)
+
+        legend_labels = []
+        for label in labels:
+            if ed_odds_ratio is not None and label in ed_odds_ratio.index:
+                odds_ratio = ed_odds_ratio.loc[label, 'OddsRatio']
+                legend_labels.append(f"{label} (OR: {odds_ratio:.2f})")
+            else:
+                legend_labels.append(label)
+
+        legend_handles = [mpatches.FancyArrowPatch((0, 0), (0.1 * 0.8, 0), color=color, arrowstyle='-|>', mutation_scale=20) for color in colors]
+        # set bbox_to_anchor=(0, 0.6) for per event and bbox_to_anchor=(0, 0.0) for all event
+        ax.legend(legend_handles, legend_labels, handler_map={mpatches.FancyArrowPatch: HandlerPatch(patch_func=make_legend_arrow)}, loc='lower left', bbox_to_anchor=(0, 0.6), frameon=False, fontsize=9)
+
+    #plt.tight_layout()
+    plt.show()
+
+def plot_radar_chart(df, models, start_from=0.5, end_at=1.0, scale=0.1, rotation_degrees=0, label_font_size=10, label_padding=0.01):
+    categories = list(df.index)
+    N = len(categories)
+
+    # Calculate the angle for each axis and ensure the plot is circular
+    angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
+    angles += angles[:1]
+
+    # Setup radar chart
+    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw={'polar': True})
+    ax.set_theta_offset(np.pi / 2)
+    ax.set_theta_direction(-1)
+
+    # Draw one axe per variable + add labels
+    plt.xticks(angles[:-1], [])
+
+    # Draw ylabels
+    ax.set_rlabel_position(0)
+    plt.yticks(np.arange(start_from, end_at, scale), ["{:.1f}".format(x) for x in np.arange(start_from, end_at, scale)], color="grey", size=7)
+    plt.ylim(start_from, end_at)
+
+    # Plot data
+    for key, value in models.items():
+        values = df.loc[categories, key].values.flatten().tolist()
+        values += values[:1]
+        ax.plot(angles, values, linewidth=1.5, linestyle='solid', label=value)
+        ax.fill(angles, values, alpha=0.1)
+
+    # Add model names as legend
+    plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
+
+    # Adding category labels slightly outside the grid
+    for i, label in enumerate(categories):
+        angle_rad = angles[i]
+        if angle_rad == 0:
+            ha = 'center'
+        elif 0 < angle_rad < np.pi:
+            ha = 'left'
+        elif angle_rad == np.pi:
+            ha = 'center'
+        else:
+            ha = 'right'
+        ax.text(angle_rad, end_at + label_padding, label, size=label_font_size, horizontalalignment=ha, verticalalignment="center", rotation_mode='anchor')
+
+    plt.show()
