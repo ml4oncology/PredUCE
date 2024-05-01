@@ -3,7 +3,7 @@ import pickle
 import dill
 import pandas as pd
 
-from src.util import process_results
+from src.eval import process_results
 from src.run_shap import load_results
 
 from src.config import data_path_dict

@@ -30,6 +30,50 @@ class EHRDataset(Dataset):
         patient_labels = patient_data[self.labels_list].values
         return torch.tensor(patient_features,dtype=torch.float32), torch.tensor(patient_labels,dtype=torch.float32)
 
+def get_neg_to_pos_ratios(train_df, labels_list):
+    """
+    Calculates the number of positive and negative examples for each label,
+    their ratio, and the event rate.
+
+    Parameters:
+    - train_df (pd.DataFrame): The DataFrame containing the training data.
+    - labels_list (list): List of labels to calculate the ratios for.
+
+    Returns:
+    - dict: A dictionary with the number of positive and negative examples,
+            their ratio, and the event rate for each label.
+    """
+    neg_to_pos_ratios_dict = {}
+
+    for label in labels_list:
+        # Check for existence of both positive and negative labels to avoid KeyError
+        pos_count = train_df[label].value_counts().get(1, 0)
+        neg_count = train_df[label].value_counts().get(0, 0)
+
+        # Calculate the ratio if positive count is not zero to avoid ZeroDivisionError
+        ratio = neg_count / pos_count if pos_count != 0 else float('inf')
+
+        # Event rate is the ratio of positive count to the total count
+        event_rate = pos_count / (pos_count + neg_count)
+
+        # Store calculations in the dictionary
+        neg_to_pos_ratios_dict[label] = {
+            'positive_count': pos_count,
+            'negative_count': neg_count,
+            'ratio': ratio,
+            'event_rate': event_rate
+        }
+
+        # Optional: Print each label's stats for verification/debugging
+        print(
+            f'{label} has {pos_count} positive examples, {neg_count} negative examples, '
+            f'ratio of {ratio:.2f} negative to positive examples. '
+            f'The event rate is {event_rate:.4f}.'
+        )
+
+    return neg_to_pos_ratios_dict
+
+
 def pad_collate(batch):
     """
     Custom collate function to pad the sequences in the batch for DataLoader.

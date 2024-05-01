@@ -41,7 +41,7 @@ from src.config import (
     data_path_dict
 )
 
-from src.util import get_neg_to_pos_ratios
+from src.train import get_neg_to_pos_ratios
 
 
 def perform_bayesian_optimization(objective_func, model_name, model_type, pbounds, train_df, tune_df,test_df, label,full_colmuns_list, n_iter=3, init_points=5, weights=None, return_optimizer=False,verbose = False,allow_duplicate_points = True,ci =False):
