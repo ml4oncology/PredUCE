@@ -178,11 +178,11 @@ def plot_repeated_corr_matrix(df, labels_list, label_mapping, legend_order, subs
                 try:
                     result = pg.rm_corr(data=corr_df, x=target1, y=target2, subject='PatientID')
                     correlations[(target1, target2)] = result['r'].values[0]
-                    print(f"Correlation between {target1} and {target2}: {result['r'].values[0]:.4f}")
+                    # print(f"Correlation between {target1} and {target2}: {result['r'].values[0]:.4f}")
                 except Exception as e:
                     correlations[(target1, target2)] = np.nan
                     # print fail to compute correlation
-                    print(f"Failed to compute correlation between {target1} and {target2}: {e}")
+                    # print(f"Failed to compute correlation between {target1} and {target2}: {e}")
 
     # Create and reorder correlation matrix
     corr_matrix = pd.DataFrame(np.nan, index=labels_list, columns=labels_list)
