@@ -3,7 +3,6 @@ import logging
 import multiprocessing as mp
 import os
 import pickle
-from . import logger
 
 # Standard library imports
 import os
