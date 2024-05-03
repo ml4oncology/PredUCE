@@ -1,6 +1,5 @@
 import argparse
 import pickle
-import dill
 import pandas as pd
 
 from src.eval import process_results
@@ -20,21 +19,15 @@ def main(train_results_path, test_df_path, output_file_path):
     test_df = pd.read_csv(test_df_path)
     labels_list = [s for s in test_df.columns.tolist() if s.startswith("Label") and s.endswith("3pt_change")]
 
+    # Generate dataframes for each label with ED visit based on 10% alarm rate per event.
     label_with_ed_per = process_results(results_df, test_df, labels_list, 'lgbm', 'Label_EDvisit')
-    label_with_death_per = process_results(results_df, test_df, labels_list, 'lgbm', 'Label_Death')
-    label_with_death_30d_per = process_results(results_df, test_df, labels_list, 'lgbm', 'Label_Death_30d')
 
+    # Generate dataframes for each labels with ED visit based on 10% alarm rate for all events.
     all_with_ed_all = process_results(results_df, test_df, labels_list, 'lgbm', 'Label_EDvisit', threshold=0.1)
-    all_with_death_all = process_results(results_df, test_df, labels_list, 'lgbm', 'Label_Death', threshold=0.1)
-    all_with_death_30d_all = process_results(results_df, test_df, labels_list, 'lgbm', 'Label_Death_30d', threshold=0.1)
 
     ed_death_association = {
         'label_with_ed_per': label_with_ed_per,
-        'label_with_death_per': label_with_death_per,
-        'label_with_death_30d_per': label_with_death_30d_per,
         'all_with_ed_all': all_with_ed_all,
-        'all_with_death_all': all_with_death_all,
-        'all_with_death_30d_all': all_with_death_30d_all
     }
 
     with open(output_file_path, 'wb') as file:

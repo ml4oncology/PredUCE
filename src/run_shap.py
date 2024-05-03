@@ -66,7 +66,13 @@ def load_results(file_path):
     with open(file_path, 'rb') as file:
         return IgnoreMissingModuleUnpickler(file).load()
 
-def calculate_shap_values(test_df, labels_list, train_results, excel_path, sheet_name, model_type='lgbm'):
+def calculate_shap_values(
+        test_df,
+        labels_list,
+        train_results,
+        excel_path,
+        sheet_name,
+        model_type='lgbm'):
     """
     Calculates SHAP values for each label in labels_list using the specified model from train_results.
     """
@@ -99,7 +105,13 @@ def calculate_shap_values(test_df, labels_list, train_results, excel_path, sheet
     return shap_dict
 
 
-def generate_shaps(test_df,labels_list, excel_path, sheet_name, train_results,save_path):
+def generate_shaps(
+        test_df,
+        labels_list,
+        excel_path,
+        sheet_name,
+        train_results,
+        save_path):
     """
     Main function to orchestrate SHAP value calculation and column renaming based on user inputs.
     """
@@ -145,7 +157,13 @@ def shap_plots(plot_path, legend_order, label_mapping, plot_type="layered_violin
     plt.show()
 
 
-def calculate_mean_shap_values(shap_dict, labels_list, test_df, label_mapping, legend_order, temporal_cohort_sheet):
+def calculate_mean_shap_values(
+        shap_dict,
+        labels_list,
+        test_df,
+        label_mapping,
+        legend_order,
+        temporal_cohort_sheet):
     """
     Calculate mean SHAP values for each feature across all labels and transform column names to lower cases.
 

@@ -70,6 +70,7 @@ def split_and_parallelize(data, worker, split_by_mrns: bool = True, processes: i
         generator = np.array_split(data, processes)
     return parallelize(generator, worker, processes=processes)
 
+
 ###############################################################################
 # Data Descriptions
 ###############################################################################
@@ -157,6 +158,23 @@ def find_largest_threshold_interval(df):
     return largest_interval
 
 def partial_predict(X,label,model_name,train_results,df,device):
+    """
+    Generates predictions for sequential models by processing modified input samples,
+    facilitating the computation of SHAP values. This function duplicates a single
+    treatment session with various feature permutations and integrates historical
+    patient data to form a complete input sequence.
+       Args:
+           X (pd.DataFrame): DataFrame containing a single treatment session, duplicated for feature permutation.
+           label (str): The target label for prediction.
+           model_name (str): Identifier for the specific model used.
+           train_results (dict): Contains trained models and their metadata.
+           df (pd.DataFrame): Full dataset containing historical patient data.
+           device (torch.device): Device on which computations will be performed (GPU or CPU).
+
+       Returns:
+           np.ndarray: Predictions for the last session in the sequence, adjusted for feature permutations.
+    """
+
     torch.cuda.empty_cache()
     # X is a single treatment session, duplicated multiple times with different feature permutations
     # Reformat to sequential data
@@ -182,17 +200,16 @@ def partial_predict(X,label,model_name,train_results,df,device):
     X['Trt_Date'] = res['Trt_Date']
     X = pd.concat([X, hist]).sort_values(by=['PatientID', 'Trt_Date'], ignore_index=True)
 
-    # Get GRU predictions
+    # Get predictions
     dataset = EHRDataset(X,[label])
     loader = DataLoader(dataset, batch_size=len(dataset), shuffle=False,collate_fn=pad_collate)
     model_input = next(iter(loader))[0]
-    # print(model_input.shape)
-    torch.cuda.empty_cache()
+
     # change different model
     model = train_results[model_name,label]['best_model']
     model.half() # use fp16 instead of fp32
     pred = model(model_input.to(device).half())
-    torch.cuda.empty_cache()
+
     # pred = gru_pain_model(model_input)
     # print(pred.shape)
     last_session_pred = pred[:, -1, :]
@@ -221,7 +238,14 @@ def find_threshold_for_alarm_rate(y_labels, y_preds, target_alarm_rate=0.1, sear
     return best_threshold
 
 
-def prepare_event_rate_dfs(test_df, results_df, labels_list, model_type, label_mapping, legend_order, alarm_rate=0.1):
+def prepare_event_rate_dfs(
+        test_df,
+        results_df,
+        labels_list,
+        model_type,
+        label_mapping,
+        legend_order,
+        alarm_rate=0.1):
     # Calculate the event rates for test_df
     event_rates_ordered = {}
     for label, readable_label in label_mapping.items():

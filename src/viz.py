@@ -83,7 +83,14 @@ def plot_repeated_corr_matrix(df, labels_list, label_mapping, legend_order, subs
     return corr_matrix
 
 
-def make_legend_arrow(legend, orig_handle, xdescent, ydescent, width, height, fontsize):
+def make_legend_arrow(
+        legend,
+        orig_handle,
+        xdescent,
+        ydescent,
+        width,
+        height,
+        fontsize):
     p = mpatches.FancyArrow(0, 0.5 * height, width * 0.8, 0, length_includes_head=True, head_width=0.75 * height, color=orig_handle.get_facecolor())
     return p
 
@@ -448,7 +455,15 @@ def make_legend_arrow(legend, orig_handle, xdescent, ydescent, width, height, fo
     p = mpatches.FancyArrow(0, 0.5 * height, width * 0.8, 0, length_includes_head=True, head_width=0.75 * height, color=orig_handle.get_facecolor())
     return p
 
-def arrows_plot(dfs, colors, labels, start_values_list=None, invert_xaxis=False, show_text=True, ed_odds_ratio=None):
+def arrows_plot(
+        dfs,
+        colors,
+        labels,
+        start_values_list=None,
+        invert_xaxis=False,
+        show_text=True,
+        ed_odds_ratio=None):
+
     if len(dfs) == 1:
         fig, ax = plt.subplots(figsize=(6, 6))
         axes = [ax]  # Make it iterable
@@ -503,7 +518,16 @@ def arrows_plot(dfs, colors, labels, start_values_list=None, invert_xaxis=False,
     #plt.tight_layout()
     plt.show()
 
-def plot_radar_chart(df, models, start_from=0.5, end_at=1.0, scale=0.1, rotation_degrees=0, label_font_size=10, label_padding=0.01):
+def plot_radar_chart(
+        df,
+        models,
+        start_from=0.5,
+        end_at=1.0,
+        scale=0.1,
+        rotation_degrees=0,
+        label_font_size=10,
+        label_padding=0.01):
+
     categories = list(df.index)
     N = len(categories)
 

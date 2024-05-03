@@ -11,7 +11,15 @@ from sklearn.metrics import (roc_auc_score, roc_curve,
 from src.util import find_threshold_for_alarm_rate
 
 
-def calculate_event_metrics(results_df, test_df, labels_list, model_name, label_mapping, legend_order, threshold=None, choice='per_event'):
+def calculate_event_metrics(
+        results_df,
+        test_df,
+        labels_list,
+        model_name,
+        label_mapping,
+        legend_order,
+        threshold=None,
+        choice='per_event'):
     """
     Calculate metrics for a 10% alarm rate either per event or for all events.
 
@@ -157,7 +165,16 @@ def calculate_metrics(row):
     return pd.Series([auroc, auprc], index=['auroc', 'auprc'])
 
 
-def calculate_event_metrics(results_df, test_df, labels_list, model_name, label_mapping, legend_order, threshold=None, choice='per_event',target_alarm_rate = 0.1):
+def calculate_event_metrics(
+        results_df,
+        test_df,
+        labels_list,
+        model_name,
+        label_mapping,
+        legend_order,
+        threshold=None,
+        choice='per_event',
+        target_alarm_rate = 0.1):
     """
     Calculate metrics for a 10% alarm rate either per event or for all events.
 
@@ -222,7 +239,15 @@ def calculate_event_metrics(results_df, test_df, labels_list, model_name, label_
 
     return results_table
 
-def process_results(results_df, test_df, labels_list, model_name, target_label, threshold=None,palliative = False,target_alarm_rate = 0.1):
+def process_results(
+        results_df,
+        test_df,
+        labels_list,
+        model_name,
+        target_label,
+        threshold=None,
+        palliative = False,
+        target_alarm_rate = 0.1):
     """
     Process the prediction results from a specified model for each label in the labels_list,
     binarize the predictions based on a threshold, and return a list of DataFrames containing

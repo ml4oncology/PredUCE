@@ -44,7 +44,24 @@ from src.config import (
 from src.train import get_neg_to_pos_ratios
 
 
-def perform_bayesian_optimization(objective_func, model_name, model_type, pbounds, train_df, tune_df,test_df, label,full_colmuns_list, n_iter=3, init_points=5, weights=None, return_optimizer=False,verbose = False,allow_duplicate_points = True,ci =False):
+def perform_bayesian_optimization(
+        objective_func,
+        model_name,
+        model_type,
+        pbounds,
+        train_df,
+        tune_df,
+        test_df,
+        label,
+        full_colmuns_list,
+        n_iter=3,
+        init_points=5,
+        weights=None,
+        return_optimizer=False,
+        verbose = False,
+        allow_duplicate_points = True,
+        ci =False):
+
     #torch.cuda.empty_cache()
     # Initialize a variable to keep track of the best val_aucs for dl models
     best_val_aucs = None
@@ -65,7 +82,18 @@ def perform_bayesian_optimization(objective_func, model_name, model_type, pbound
         nonlocal best_all_labels
 
 
-        objective_auroc, val_aucs ,auroc_ci, all_preds,all_labels,_,_ = objective_func(model_name, model_type, params, train_df, tune_df, test_df, label,full_colmuns_list, weights, verbose,ci)
+        objective_auroc, val_aucs ,auroc_ci, all_preds,all_labels,_,_ = objective_func(
+            model_name,
+            model_type,
+            params,
+            train_df,
+            tune_df,
+            test_df,
+            label,
+            full_colmuns_list,
+            weights,
+            verbose,
+            ci)
 
         # If this is the first iteration or if a better auroc is found, update best_val_aucs and best_auroc
         if best_auroc is None or objective_auroc > best_auroc:
@@ -94,7 +122,20 @@ def perform_bayesian_optimization(objective_func, model_name, model_type, pbound
         # Otherwise, just return the best parameters as before
         return optimizer.max['params']
 
-def train_model(model_name,model_type,params, train_df,tune_df,test_df,label,full_colmuns_list,weights=None,verbose = False,ci= False,testing = False):
+def train_model(
+        model_name,
+        model_type,
+        params,
+        train_df,
+        tune_df,
+        test_df,
+        label,
+        full_colmuns_list,
+        weights=None,
+        verbose = False,
+        ci= False,
+        testing = False):
+
     torch.cuda.empty_cache()
     # for dl models
     val_aucs = None
@@ -175,7 +216,6 @@ def train_model(model_name,model_type,params, train_df,tune_df,test_df,label,ful
         if not isinstance(weights, list):
             weights = [weights]
 
-        torch.cuda.empty_cache()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # Hyperparameters for DL models
         train_dataset = EHRDataset(train_df,label)
@@ -228,11 +268,16 @@ def train_model(model_name,model_type,params, train_df,tune_df,test_df,label,ful
         optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
         if testing == True:
-            train_losses, train_aucs, train_aups, val_losses, val_aucs, val_aups, mean_val_losses, train_auc_cis, train_aup_cis, val_auc_cis, val_aup_cis,ir_models,models,all_preds,all_labels = train_and_evaluate_dl(
-                30, model, train_loader, tune_loader,test_loader, optimizer, criterion, device,output_size,label, weights,scheduler =None,early_stopping_patience=5,verbose = verbose,ci=ci,my_copy=True,testing=True,calibration=True)
+            train_losses, train_aucs, train_aups, val_losses, val_aucs, val_aups, mean_val_losses, train_auc_cis, \
+            train_aup_cis, val_auc_cis, val_aup_cis,ir_models,models,all_preds,all_labels = train_and_evaluate_dl(
+                30, model, train_loader, tune_loader,test_loader, optimizer, criterion, device,output_size,label,
+                weights,scheduler =None,early_stopping_patience=5,verbose = verbose,ci=ci,my_copy=True,testing=True,
+                calibration=True)
         else:
-            train_losses, train_aucs, train_aups, val_losses, val_aucs, val_aups, mean_val_losses, train_auc_cis, train_aup_cis, val_auc_cis, val_aup_cis, ir_models, models, all_preds, all_labels = train_and_evaluate_dl(
-                30, model, train_loader, tune_loader, None, optimizer, criterion, device, output_size, label,weights,scheduler=None, early_stopping_patience=3, verbose=verbose, ci=ci, my_copy=False)
+            train_losses, train_aucs, train_aups, val_losses, val_aucs, val_aups, mean_val_losses, train_auc_cis, \
+            train_aup_cis, val_auc_cis, val_aup_cis, ir_models, models, all_preds, all_labels = train_and_evaluate_dl(
+                30, model, train_loader, tune_loader, None, optimizer, criterion, device, output_size, label,weights,
+                scheduler=None, early_stopping_patience=3, verbose=verbose, ci=ci, my_copy=False)
 
         if output_size == 1:
             best_epoch = np.argmax(val_aucs[0])
@@ -257,7 +302,14 @@ def train_model(model_name,model_type,params, train_df,tune_df,test_df,label,ful
 
     return objective_auroc, val_aucs,auroc_ci,all_preds,all_labels,best_model,best_ir_model
 
-def main(train_path, tune_path, test_path, full_path, search_save_path, test_save_path,target_change):
+def main(
+    train_path,
+    tune_path,
+    test_path,
+    full_path,
+    search_save_path,
+    test_save_path,
+    target_change):
 
     train_df = pd.read_csv(train_path)
     tune_df = pd.read_csv(tune_path)
