@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import Optional
 import logging
 
+from tqdm import tqdm
 import numpy as np
 import pandas as pd
 
@@ -104,4 +105,20 @@ def exclude_immediate_events(df: pd.DataFrame, date_cols: Sequence[str]) -> pd.D
         mask |= days_until_event < pd.Timedelta('2 days')
     get_excluded_numbers(df, ~mask, context=f' in which patient had a target event in less than 2 days.')
     df = df[~mask]
+    return df
+
+
+def keep_only_one_per_week(df: pd.DataFrame) -> list[int]:
+    """Keep only the first treatment session of a given week
+    Drop all other sessions
+    """
+    keep_idxs = []
+    for mrn, group in tqdm(df.groupby('mrn'), desc='Getting the first sessions of a given week...'):
+        previous_date = pd.Timestamp.min
+        for i, visit_date in group['treatment_date'].items():
+            if visit_date >= previous_date + pd.Timedelta(days=7):
+                keep_idxs.append(i)
+                previous_date = visit_date
+    get_excluded_numbers(df, mask=df.index.isin(keep_idxs), context=f' not first of a given week')
+    df = df.loc[keep_idxs]
     return df

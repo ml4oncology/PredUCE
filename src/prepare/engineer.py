@@ -20,7 +20,7 @@ def get_change_since_prev_session(df: pd.DataFrame) -> pd.DataFrame:
     cols = symp_cols + lab_cols + ['patient_ecog']
     change_cols = symp_change_cols + lab_change_cols + ['patient_ecog_change']
     result = []
-    for mrn, group in tqdm(df.groupby('mrn')):
+    for mrn, group in tqdm(df.groupby('mrn'), desc='Getting change since last session...'):
         change = group[cols] - group[cols].shift()
         result.append(change.reset_index().to_numpy())
     result = np.concatenate(result)

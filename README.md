@@ -1,7 +1,7 @@
 # Predict Undesirable Cancer Events
 
-Build models to predict undeirable cancer events (i.e. symptom deterioration, emergency department visits, etc).
-Pipelines for preparing data for model consumption, model training, and model evaluation. 
+Build models to predict undesirable cancer events (i.e. symptom deterioration, emergency department visits, etc).
+Pipelines for data preparation, model development, and model evaluation. 
 
 # Data Location
 Please see [ml4oncology/make-clinical-dataset](https://github.com/ml4oncology/make-clinical-dataset).

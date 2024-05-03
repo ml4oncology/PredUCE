@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 ###############################################################################
 # I/O
 ###############################################################################
-def load_pickle(save_dir: str, filename: str, err_msg=None):
+def load_pickle(save_dir: str, filename: str):
     filepath = f'{save_dir}/{filename}.pkl'
     with open(filepath, 'rb') as file:
         output = pickle.load(file)
@@ -63,8 +63,8 @@ def split_and_parallelize(data, worker, split_by_mrns: bool = True, processes: i
             sharing the same patient ids
         split_by_mrns: If True, split up the data by patient ids
     """
-    generator = []
     if split_by_mrns:
+        generator = []
         mrns = data[0]['mrn'] if isinstance(data, tuple) else data['mrn']
         mrn_groupings = np.array_split(mrns.unique(), processes)
         if isinstance(data, tuple):
