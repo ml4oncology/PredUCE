@@ -2,14 +2,16 @@
 Module to prepare data for model consumption
 """
 from typing import Optional
+import logging
 
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 import pandas as pd
 
 from .engineer import collapse_rare_categories
-from .. import logger
 from ..constants import drug_cols, lab_cols, lab_change_cols, symp_cols, symp_change_cols
+
+logger = logging.getLogger(__name__)
 
 class Imputer:
     """Impute missing data by mean, mode, or median
@@ -66,9 +68,6 @@ class OneHotEncoder:
         self.encode_cols = ['regimen', 'intent']
         self.final_columns = None # the final feature names after OHE
         
-        # function to get the indicator columns of a categorical feature
-        self.get_indcols = lambda cols, feat: cols[cols.str.startswith(feat)]
-        
     def encode(self, data: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
         # one-hot encode categorical columns
         # use only the columns that exist in the data
@@ -82,7 +81,7 @@ class OneHotEncoder:
         
         # reassign any indicator columns that did not exist in final columns as other
         for feature in cols:
-            indicator_cols = self.get_indcols(data.columns, feature)
+            indicator_cols = data.columns[data.columns.str.startswith(feature)]
             extra_cols = indicator_cols.difference(self.final_columns)
             if extra_cols.empty: continue
             

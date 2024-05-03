@@ -3,16 +3,18 @@ Module to filter features and samples
 """
 from collections.abc import Sequence
 from typing import Optional
+import logging
 
 import numpy as np
 import pandas as pd
 
-from .. import logger
 from ..constants import drug_cols
 from ..util import get_nmissing, get_excluded_numbers
 
 from warnings import simplefilter 
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
+
+logger = logging.getLogger(__name__)
 
 def drop_highly_missing_features(
     df: pd.DataFrame, 

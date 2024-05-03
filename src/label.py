@@ -30,7 +30,7 @@ def get_label_distribution(
                 count[0][target] = mrn.nunique() - count[1][target]
             dists[split] = pd.DataFrame(count).T
     elif with_respect_to == 'sessions':
-        dists = {split: group.apply(pd.value_counts) 
+        dists = {split: group.apply(lambda x: x.value_counts()) 
                  for split, group in Y.groupby(metainfo['split'])}
     dists['Total'] = dists['Train'] + dists['Valid'] + dists['Test']
     dists = pd.concat(dists).T
@@ -84,7 +84,7 @@ def get_symptom_labels(chemo_df: pd.DataFrame, symp_df: pd.DataFrame, lookahead_
 def symptom_worker(partition, lookahead_window: int = 30) -> list:
     chemo_df, symp_df = partition
     result = []
-    for mrn, chemo_group in tqdm(chemo_df.groupby('mrn')):
+    for mrn, chemo_group in tqdm(chemo_df.groupby('mrn'), desc='Getting symptom labels...'):
         symp_group = symp_df.query('mrn == @mrn')
         surv_dates = symp_group['survey_date']
 
@@ -102,8 +102,9 @@ def symptom_worker(partition, lookahead_window: int = 30) -> list:
             data = []
             for symp in symp_cols:
                 # take the max (worst) symptom scores within the target timeframe
-                idx = symp_group.loc[mask, symp].idxmax()
-                data += [None, None] if np.isnan(idx) else [surv_dates[idx], symp_group.loc[idx, symp]]
+                scores = symp_group.loc[mask, symp]
+                idx = None if all(scores.isnull()) else scores.idxmax(skipna=True)
+                data += [None, None] if idx is None else [surv_dates[idx], symp_group.loc[idx, symp]]
             result.append([chemo_idx]+data)
     return result
 
