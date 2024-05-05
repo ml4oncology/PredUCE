@@ -1,6 +1,7 @@
 """
 Module to engineer features
 """
+
 from collections.abc import Sequence
 import logging
 
@@ -12,30 +13,35 @@ from ..constants import lab_cols, lab_change_cols, symp_cols, symp_change_cols
 
 logger = logging.getLogger(__name__)
 
+
 ###############################################################################
 # Engineering Features
 ###############################################################################
 def get_change_since_prev_session(df: pd.DataFrame) -> pd.DataFrame:
     """Get change since last session"""
-    cols = symp_cols + lab_cols + ['patient_ecog']
-    change_cols = symp_change_cols + lab_change_cols + ['patient_ecog_change']
+    cols = symp_cols + lab_cols + ["patient_ecog"]
+    change_cols = symp_change_cols + lab_change_cols + ["patient_ecog_change"]
     result = []
-    for mrn, group in tqdm(df.groupby('mrn'), desc='Getting change since last session...'):
+    for mrn, group in tqdm(
+        df.groupby("mrn"), desc="Getting change since last session..."
+    ):
         change = group[cols] - group[cols].shift()
         result.append(change.reset_index().to_numpy())
     result = np.concatenate(result)
 
-    result = pd.DataFrame(result, columns=['index']+change_cols).set_index('index')
+    result = pd.DataFrame(result, columns=["index"] + change_cols).set_index("index")
     result.index = result.index.astype(int)
     df = pd.concat([df, result], axis=1)
 
     return df
 
 
-def get_missingness_features(df: pd.DataFrame, target_keyword: str = 'target') -> pd.DataFrame:
+def get_missingness_features(
+    df: pd.DataFrame, target_keyword: str = "target"
+) -> pd.DataFrame:
     cols_with_nan = df.columns[df.isnull().any()]
     cols_with_nan = cols_with_nan[~cols_with_nan.str.startswith(target_keyword)]
-    df[cols_with_nan + '_is_missing'] = df[cols_with_nan].isnull()
+    df[cols_with_nan + "_is_missing"] = df[cols_with_nan].isnull()
     return df
 
 
@@ -46,11 +52,11 @@ def collapse_rare_categories(df: pd.DataFrame, catcols: Sequence[str]) -> pd.Dat
         drop_cols = []
         for col in df.columns[df.columns.str.startswith(feature)]:
             mask = df[col]
-            if df.loc[mask, 'mrn'].nunique() < 6:
+            if df.loc[mask, "mrn"].nunique() < 6:
                 drop_cols.append(col)
                 other_mask |= mask
         df = df.drop(columns=drop_cols)
-        df[f'{feature}_other'] = other_mask
-        msg = f'Reassigning the following {len(drop_cols)} indicators with less than 6 patients as other: {drop_cols}'
+        df[f"{feature}_other"] = other_mask
+        msg = f"Reassigning the following {len(drop_cols)} indicators with less than 6 patients as other: {drop_cols}"
         logger.info(msg)
     return df
