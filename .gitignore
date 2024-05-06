@@ -1,6 +1,7 @@
 **/.ipynb_checkpoints
 **/__pycache__
 .DS_store
+.ruff_cache
 data/
 logs/
 models/
