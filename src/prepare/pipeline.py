@@ -6,10 +6,9 @@ from collections.abc import Sequence
 
 import pandas as pd
 
-from ..constants import symp_cols
 from .filter import exclude_immediate_events, indicate_immediate_events
-from .prep import PrepData
-from .split import create_train_val_test_splits
+from common.src.constants import SYMP_COLS
+from common.src.prep import PrepData, Splitter
 
 from warnings import simplefilter
 
@@ -24,14 +23,15 @@ class PrepSympData(PrepData):
         self, df: pd.DataFrame, split_date: str, target_pt_increases: Sequence[int]
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         # split the data - create training, validation, testing set
-        train_data, valid_data, test_data = create_train_val_test_splits(
+        splitter = Splitter()
+        train_data, valid_data, test_data = splitter.split_data(
             df, split_date=split_date
         )
 
         # Remove sessions where event occured immediately afterwards on the train and valid set ONLY
-        date_cols = [f"target_{symp}_survey_date" for symp in symp_cols]
+        date_cols = [f"target_{symp}_survey_date" for symp in SYMP_COLS]
         for pt in target_pt_increases:
-            targ_cols = [f"target_{symp}_{pt}pt_change" for symp in symp_cols]
+            targ_cols = [f"target_{symp}_{pt}pt_change" for symp in SYMP_COLS]
             train_data = indicate_immediate_events(train_data, targ_cols, date_cols)
             valid_data = indicate_immediate_events(valid_data, targ_cols, date_cols)
 
@@ -67,7 +67,8 @@ class PrepACUData(PrepData):
         self, df: pd.DataFrame, event_name: str
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         # split the data - create training, validation, testing set
-        train_data, valid_data, test_data = create_train_val_test_splits(
+        splitter = Splitter()
+        train_data, valid_data, test_data = splitter.split_data(
             df, split_date="2018-02-01"
         )
 

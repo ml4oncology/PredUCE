@@ -5,15 +5,13 @@ Module to extract and view labels
 from typing import Optional
 
 from collections import defaultdict
-from collections.abc import Sequence
 from functools import partial
 
 from tqdm import tqdm
-import numpy as np
 import pandas as pd
 
-from .constants import symp_cols
-from .util import get_excluded_numbers, split_and_parallelize
+from common.src.constants import SYMP_COLS
+from common.src.util import split_and_parallelize
 
 
 def get_label_distribution(
@@ -49,7 +47,7 @@ def convert_to_binary_symptom_labels(
     Label is positive if symptom deteriorates (score increases) by X points
     """
     if scoring_map is None:
-        scoring_map = {col: 3 for col in symp_cols}
+        scoring_map = {col: 3 for col in SYMP_COLS}
     for base_col, pt in scoring_map.items():
         continuous_targ_col = f"target_{base_col}_change"
         discrete_targ_col = f"target_{base_col}_{pt}pt_change"
@@ -75,13 +73,13 @@ def get_symptom_labels(
     worker = partial(symptom_worker, lookahead_window=lookahead_window)
     result = split_and_parallelize((chemo_df, symp_df), worker)
     cols = []
-    for symp in symp_cols:
+    for symp in SYMP_COLS:
         cols += [f"target_{symp}_survey_date", f"target_{symp}"]
     result = pd.DataFrame(result, columns=["index"] + cols).set_index("index")
     chemo_df = pd.concat([chemo_df, result], axis=1)
 
     # compute target symptom score change
-    for symp in symp_cols:
+    for symp in SYMP_COLS:
         chemo_df[f"target_{symp}_change"] = chemo_df[f"target_{symp}"] - chemo_df[symp]
 
     return chemo_df
@@ -109,7 +107,7 @@ def symptom_worker(partition, lookahead_window: int = 30) -> list:
                 continue
 
             data = []
-            for symp in symp_cols:
+            for symp in SYMP_COLS:
                 # take the max (worst) symptom scores within the target timeframe
                 scores = symp_group.loc[mask, symp]
                 idx = None if all(scores.isnull()) else scores.idxmax(skipna=True)

@@ -15,7 +15,7 @@ from sklearn.metrics import (
     f1_score,
 )
 
-from src.util import find_threshold_for_alarm_rate
+from .util import find_threshold_for_alarm_rate, get_merge_df
 
 
 def calculate_event_metrics(
@@ -188,97 +188,6 @@ def calculate_metrics(row):
     return pd.Series([auroc, auprc], index=["auroc", "auprc"])
 
 
-def calculate_event_metrics(
-    results_df,
-    test_df,
-    labels_list,
-    model_name,
-    label_mapping,
-    legend_order,
-    threshold=None,
-    choice="per_event",
-    target_alarm_rate=0.1,
-):
-    """
-    Calculate metrics for a 10% alarm rate either per event or for all events.
-
-    Parameters:
-    results_df (pd.DataFrame): DataFrame containing the results.
-    test_df (pd.DataFrame): DataFrame containing the test data.
-    labels_list (list): List of labels to consider.
-    model_name (str): The name of the model to filter results for.
-    threshold (float): Optional threshold value for all events.
-    choice (str): 'per_event' for individual event threshold, 'all_events' for a common threshold.
-
-    Returns:
-    pd.DataFrame: A DataFrame with precision, recall, and F1 scores for each event.
-    """
-    event_results = []
-
-    for label in labels_list:
-        if choice == "per_event":
-            # For 10% alarm rate per event
-            event_results.append(
-                process_results(
-                    results_df,
-                    test_df,
-                    [label],
-                    model_name,
-                    label,
-                    target_alarm_rate=target_alarm_rate,
-                )
-            )
-        elif choice == "all_events":
-            # For 10% alarm rate for all events
-            event_results.append(
-                process_results(
-                    results_df, test_df, [label], model_name, label, threshold=threshold
-                )
-            )
-        else:
-            raise ValueError("Choice must be 'per_event' or 'all_events'")
-
-    # Initialize an empty list to hold each row of the table
-    table_rows = []
-
-    for i, label in enumerate(labels_list):
-        pred_name = label + "_Pred"
-
-        # Extract the relevant data from the results
-        results = event_results[i]
-        threshold = results[(model_name, label, "threshold")]
-        labels = results[(model_name, label, label)][label]
-        predictions = results[(model_name, label, label)][pred_name]
-
-        # Calculate the precision, sensitivity (recall), and F1 score
-        precision = precision_score(labels, predictions)
-        sensitivity = recall_score(labels, predictions)
-        f1 = f1_score(labels, predictions)
-
-        # Append the results for this label to the table_rows list
-        table_rows.append(
-            {
-                "Event": label,
-                "Threshold": threshold,
-                "Precision": precision,
-                "Sensitivity": sensitivity,
-                "F1": f1,
-            }
-        )
-
-    # Create a DataFrame from the rows
-    results_table = pd.DataFrame(table_rows)
-
-    # Set the 'Event' column as the index
-    results_table.set_index("Event", inplace=True)
-
-    # Rename the index and columns according to label_mapping
-    results_table.index = results_table.index.map(label_mapping)
-    results_table = results_table.reindex(legend_order)
-
-    return results_table
-
-
 def process_results(
     results_df,
     test_df,
@@ -360,3 +269,108 @@ def process_results(
             print(f"Labels do NOT match for {label}.")
 
     return final_df_dict
+
+
+def prepare_event_rate_dfs(
+    test_df,
+    results_df,
+    labels_list,
+    model_type,
+    label_mapping,
+    legend_order,
+    alarm_rate=0.1,
+):
+    # Calculate the event rates for test_df
+    event_rates_ordered = {}
+    for label, readable_label in label_mapping.items():
+        pos_count = test_df[label].value_counts().get(1, 0)
+        neg_count = test_df[label].value_counts().get(0, 0)
+        total_count = pos_count + neg_count
+        event_rate = pos_count / total_count if total_count > 0 else 0
+        event_rates_ordered[readable_label] = event_rate
+
+    # Order the event rates according to legend_order
+    ordered_event_rates = [event_rates_ordered[label] for label in legend_order]
+
+    # Prepare metrics dataframes
+    merge_df, threshold = get_merge_df(
+        results_df, test_df, labels_list, model_type, alarm_rate=alarm_rate
+    )
+    table_per_event = calculate_event_metrics(
+        results_df,
+        test_df,
+        labels_list,
+        model_type,
+        label_mapping,
+        legend_order,
+        choice="per_event",
+        target_alarm_rate=alarm_rate,
+    )
+    table_all_events = calculate_event_metrics(
+        results_df,
+        test_df,
+        labels_list,
+        model_type,
+        label_mapping,
+        legend_order,
+        threshold=threshold,
+        choice="all_events",
+    )
+
+    # Prepare DataFrames for 10% alarm rate scenarios
+    ten_percent_per_event_df = pd.DataFrame(
+        {
+            "Event": legend_order,
+            "Threshold": table_per_event["Threshold"].to_list(),
+            "Precision": table_per_event["Precision"].to_list(),
+            "Sensitivity": table_per_event["Sensitivity"].to_list(),
+            "F1": table_per_event["F1"].to_list(),
+            "Event Rate": ordered_event_rates,
+        }
+    )
+
+    # calculate alarm rate for each target under 10% all event
+    # Get all prediction columns, convert to binary, and compute alarm rates
+    binary_columns = [
+        (col, (merge_df[col] >= threshold).astype(int))
+        for col in merge_df.columns
+        if col.endswith("_prediction")
+    ]
+    alarm_rates = {col: binary.sum() / len(merge_df) for col, binary in binary_columns}
+
+    # Map the prediction column names to more readable labels and reorder according to legend_order
+    label_mapping_reversed = {
+        v: k for k, v in label_mapping.items()
+    }  # Reverse the label_mapping for easier access
+    ordered_alarm_rate_10_all_event = {
+        label: alarm_rates[label_mapping_reversed[label] + "_prediction"]
+        for label in legend_order
+        if label_mapping_reversed[label] + "_prediction" in alarm_rates
+    }
+    event_rate_10_all_event_list = list(ordered_alarm_rate_10_all_event.values())
+
+    ten_percent_all_event_df = pd.DataFrame(
+        {
+            "Event": legend_order,
+            "Threshold": table_all_events["Threshold"].to_list(),
+            "Alarm Rate": event_rate_10_all_event_list,
+            "Precision": table_all_events["Precision"].to_list(),
+            "Sensitivity": table_all_events["Sensitivity"].to_list(),
+            "F1": table_all_events["F1"].to_list(),
+        }
+    )
+
+    # Calculate start values for drawing arrows
+    start_values = [
+        (
+            ten_percent_per_event_df.loc[
+                ten_percent_per_event_df["Event"] == row["Event"], "Sensitivity"
+            ].values[0],
+            ten_percent_per_event_df.loc[
+                ten_percent_per_event_df["Event"] == row["Event"], "Precision"
+            ].values[0],
+        )
+        for _, row in ten_percent_all_event_df.iterrows()
+    ]
+
+    return merge_df, ten_percent_per_event_df, ten_percent_all_event_df, start_values

@@ -1,14 +1,9 @@
-import itertools
-import logging
-import multiprocessing as mp
-import os
-import pickle
-
 # Standard library imports
+import logging
 import os
-from functools import reduce
 
 os.environ["OUTDATED_IGNORE"] = "1"
+from functools import reduce
 
 # Third-party imports
 import numpy as np
@@ -19,7 +14,6 @@ import torch
 from torch.utils.data import DataLoader
 
 from src.train import EHRDataset, pad_collate
-from src.eval import calculate_event_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -27,19 +21,6 @@ logger = logging.getLogger(__name__)
 ###############################################################################
 # I/O
 ###############################################################################
-def load_pickle(save_dir: str, filename: str):
-    filepath = f"{save_dir}/{filename}.pkl"
-    with open(filepath, "rb") as file:
-        output = pickle.load(file)
-    return output
-
-
-def save_pickle(result, save_dir: str, filename: str):
-    filepath = f"{save_dir}/{filename}.pkl"
-    with open(filepath, "wb") as file:
-        pickle.dump(result, file)
-
-
 def initialize_folders():
     main_folders = ["logs", "models", "result/tables"]
     for folder in main_folders:
@@ -48,75 +29,8 @@ def initialize_folders():
 
 
 ###############################################################################
-# Multiprocessing
-###############################################################################
-def parallelize(generator, worker, processes: int = 4) -> list:
-    pool = mp.Pool(processes=processes)
-    result = pool.map(worker, generator)
-    pool.close()
-    pool.join()  # wait for all threads
-    result = list(itertools.chain(*result))
-    return result
-
-
-def split_and_parallelize(
-    data, worker, split_by_mrns: bool = True, processes: int = 4
-) -> list:
-    """Split up the data and parallelize processing of data
-
-    Args:
-        data: Supports a sequence, pd.DataFrame, or tuple of pd.DataFrames
-            sharing the same patient ids
-        split_by_mrns: If True, split up the data by patient ids
-    """
-    if split_by_mrns:
-        generator = []
-        mrns = data[0]["mrn"] if isinstance(data, tuple) else data["mrn"]
-        mrn_groupings = np.array_split(mrns.unique(), processes)
-        if isinstance(data, tuple):
-            for mrn_grouping in mrn_groupings:
-                items = tuple(df[df["mrn"].isin(mrn_grouping)] for df in data)
-                generator.append(items)
-        else:
-            for mrn_grouping in mrn_groupings:
-                item = data[mrns.isin(mrn_grouping)]
-                generator.append(item)
-    else:
-        # splits df into x number of partitions, where x is number of processes
-        generator = np.array_split(data, processes)
-    return parallelize(generator, worker, processes=processes)
-
-
-###############################################################################
-# Data Descriptions
-###############################################################################
-def get_nunique_categories(df: pd.DataFrame) -> pd.DataFrame:
-    catcols = df.dtypes[df.dtypes == object].index.tolist()
-    return pd.DataFrame(
-        df[catcols].nunique(), columns=["Number of Unique Categories"]
-    ).T
-
-
-def get_nmissing(df: pd.DataFrame) -> pd.DataFrame:
-    missing = df.isnull().sum()  # number of nans for each column
-    missing = missing[missing != 0]  # remove columns without missing values
-    missing = pd.DataFrame(missing, columns=["Missing (N)"])
-    missing["Missing (%)"] = (missing["Missing (N)"] / len(df) * 100).round(3)
-    return missing.sort_values(by="Missing (N)")
-
-
-def get_excluded_numbers(df, mask: pd.Series, context: str = ".") -> None:
-    """Report the number of patients and sessions that were excluded"""
-    N_sessions = sum(~mask)
-    N_patients = len(set(df["mrn"]) - set(df.loc[mask, "mrn"]))
-    logger.info(f"Removing {N_patients} patients and {N_sessions} sessions{context}")
-
-
-###############################################################################
 #  Data manipulation
 ###############################################################################
-
-
 def calculate_mean_cal_error(prob_true, prob_pred, n_bins=10):
     """Compute mean calibration error (MCE)"""
     bin_boundaries = np.linspace(0, 1, n_bins + 1)
@@ -279,111 +193,6 @@ def find_threshold_for_alarm_rate(
 
     # print(f"Best threshold: {best_threshold} with alarm rate: {closest_alarm_rate}, TP: {tp}")
     return best_threshold
-
-
-def prepare_event_rate_dfs(
-    test_df,
-    results_df,
-    labels_list,
-    model_type,
-    label_mapping,
-    legend_order,
-    alarm_rate=0.1,
-):
-    # Calculate the event rates for test_df
-    event_rates_ordered = {}
-    for label, readable_label in label_mapping.items():
-        pos_count = test_df[label].value_counts().get(1, 0)
-        neg_count = test_df[label].value_counts().get(0, 0)
-        total_count = pos_count + neg_count
-        event_rate = pos_count / total_count if total_count > 0 else 0
-        event_rates_ordered[readable_label] = event_rate
-
-    # Order the event rates according to legend_order
-    ordered_event_rates = [event_rates_ordered[label] for label in legend_order]
-
-    # Prepare metrics dataframes
-    merge_df, threshold = get_merge_df(
-        results_df, test_df, labels_list, model_type, alarm_rate=alarm_rate
-    )
-    table_per_event = calculate_event_metrics(
-        results_df,
-        test_df,
-        labels_list,
-        model_type,
-        label_mapping,
-        legend_order,
-        choice="per_event",
-        target_alarm_rate=alarm_rate,
-    )
-    table_all_events = calculate_event_metrics(
-        results_df,
-        test_df,
-        labels_list,
-        model_type,
-        label_mapping,
-        legend_order,
-        threshold=threshold,
-        choice="all_events",
-    )
-
-    # Prepare DataFrames for 10% alarm rate scenarios
-    ten_percent_per_event_df = pd.DataFrame(
-        {
-            "Event": legend_order,
-            "Threshold": table_per_event["Threshold"].to_list(),
-            "Precision": table_per_event["Precision"].to_list(),
-            "Sensitivity": table_per_event["Sensitivity"].to_list(),
-            "F1": table_per_event["F1"].to_list(),
-            "Event Rate": ordered_event_rates,
-        }
-    )
-
-    # calculate alarm rate for each target under 10% all event
-    # Get all prediction columns, convert to binary, and compute alarm rates
-    binary_columns = [
-        (col, (merge_df[col] >= threshold).astype(int))
-        for col in merge_df.columns
-        if col.endswith("_prediction")
-    ]
-    alarm_rates = {col: binary.sum() / len(merge_df) for col, binary in binary_columns}
-
-    # Map the prediction column names to more readable labels and reorder according to legend_order
-    label_mapping_reversed = {
-        v: k for k, v in label_mapping.items()
-    }  # Reverse the label_mapping for easier access
-    ordered_alarm_rate_10_all_event = {
-        label: alarm_rates[label_mapping_reversed[label] + "_prediction"]
-        for label in legend_order
-        if label_mapping_reversed[label] + "_prediction" in alarm_rates
-    }
-    event_rate_10_all_event_list = list(ordered_alarm_rate_10_all_event.values())
-
-    ten_percent_all_event_df = pd.DataFrame(
-        {
-            "Event": legend_order,
-            "Threshold": table_all_events["Threshold"].to_list(),
-            "Alarm Rate": event_rate_10_all_event_list,
-            "Precision": table_all_events["Precision"].to_list(),
-            "Sensitivity": table_all_events["Sensitivity"].to_list(),
-            "F1": table_all_events["F1"].to_list(),
-        }
-    )
-
-    # Calculate start values for drawing arrows
-    start_values = [
-        (
-            ten_percent_per_event_df.loc[
-                ten_percent_per_event_df["Event"] == row["Event"], "Sensitivity"
-            ].values[0],
-            ten_percent_per_event_df.loc[
-                ten_percent_per_event_df["Event"] == row["Event"], "Precision"
-            ].values[0],
-        )
-        for _, row in ten_percent_all_event_df.iterrows()
-    ]
-
-    return merge_df, ten_percent_per_event_df, ten_percent_all_event_df, start_values
 
 
 def get_merge_df(results_df, test_df, labels_list, model_name, alarm_rate=0.1):

@@ -6,7 +6,7 @@ from typing import Optional
 
 import pandas as pd
 
-from .constants import cancer_code_map, drug_cols, lab_cols, unit_map
+from common.src.constants import CANCER_CODE_MAP, DRUG_COLS, LAB_COLS, UNIT_MAP
 
 
 def pre_and_post_treatment_missingness_summary(
@@ -123,7 +123,7 @@ def feature_summary(
     summary["Missingness (%)"] = (count / N * 100).round(1)
     summary = summary.drop(columns=["count", "mean", "std"])
     # special case for drug features (percentage of dose given)
-    for col in drug_cols:
+    for col in DRUG_COLS:
         if col not in X_train.columns:
             continue
         mask = (
@@ -137,7 +137,7 @@ def feature_summary(
         "Acute care use": "ED_visit",
         "Cancer": "cancer_site|morphology",
         "Demographic": "height|weight|body_surface_area|female|age",
-        "Laboratory": "|".join(lab_cols),
+        "Laboratory": "|".join(LAB_COLS),
         "Treatment": "visit_month|regimen|intent|treatment|dose|therapy|cycle",
         "Symptoms": "esas|ecog",
     }
@@ -151,7 +151,7 @@ def feature_summary(
 
     # insert units
     rename_map = {
-        feat: f"{feat} ({unit})" for unit, feats in unit_map.items() for feat in feats
+        feat: f"{feat} ({unit})" for unit, feats in UNIT_MAP.items() for feat in feats
     }
     rename_map["female"] = "female (yes/no)"
     summary = summary.rename(index=rename_map)
@@ -200,8 +200,8 @@ def clean_feature_name(name: str) -> str:
     if name.startswith("Topography ") or name.startswith("Morphology "):
         # get full cancer description
         code = name.split(" ")[-1]
-        if code in cancer_code_map:
-            name = f"{name}, {cancer_code_map[code]}"
+        if code in CANCER_CODE_MAP:
+            name = f"{name}, {CANCER_CODE_MAP[code]}"
     elif name.startswith("ESAS "):
         # add 'score'
         if "Change" in name:
