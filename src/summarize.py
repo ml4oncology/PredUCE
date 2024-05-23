@@ -2,7 +2,7 @@
 Module to create summary tables
 """
 
-from typing import Optional
+from typing import Optional, Sequence
 
 import pandas as pd
 
@@ -215,3 +215,60 @@ def clean_feature_name(name: str) -> str:
             name = f"{prefix}{name.split(prefix)[-1].upper()}"
 
     return name
+
+
+def get_patient_characteristics(
+    df: pd.DataFrame,
+    top_regimens: Optional[Sequence] = None,
+    top_cancers: Optional[Sequence] = None,
+):
+    """Get summary statistics of the patients in the cohort"""
+    if top_cancers is None:
+        top_cancers = []
+    if top_regimens is None:
+        top_regimens = []
+
+    N = len(df)
+    pc = {}  # patient characteristics
+
+    # number of treatment sessions
+    num_sessions = df.groupby("mrn").apply(len, include_groups=False)
+    median = int(num_sessions.median())
+    q25, q75 = num_sessions.quantile([0.25, 0.75]).astype(int)
+    pc["Number of Treatments, Median (IQR)"] = f"{median} ({q25}-{q75})"
+
+    # age
+    age = df["age"]
+    median = int(age.median())
+    q25, q75 = age.quantile([0.25, 0.75]).astype(int)
+    pc["Age (years), Median (IQR)"] = f"{median} ({q25}-{q75})"
+
+    # height
+    height = df["height"]
+    median = height.median().round(1)
+    q25, q75 = height.quantile([0.25, 0.75]).round(1)
+    pc["Height (cm), Median (IQR)"] = f"{median} ({q25}-{q75})"
+
+    # weight
+    weight = df["weight"]
+    median = weight.median().round(1)
+    q25, q75 = weight.quantile([0.25, 0.75]).round(1)
+    pc["Weight (kg), Median (IQR)"] = f"{median} ({q25}-{q75})"
+
+    # sex
+    num_females = df["female"].sum()
+    pc["Female, No. (%)"] = f"{num_females} ({num_females/N*100:.1f})"
+
+    # regimens
+    for regimen in top_regimens:
+        num_regimens = sum(df["regimen"] == regimen)
+        pc[f"Regimen {regimen}, No. (%)"] = f"{num_regimens} ({num_regimens/N*100:.1f})"
+
+    # cancers
+    for cancer in top_cancers:
+        num_cancers = df[cancer].sum()
+        pc[f"Cancer Site {CANCER_CODE_MAP[cancer[-3:]]}, No. (%)"] = (
+            f"{num_cancers} ({num_cancers/N*100:.1f})"
+        )
+
+    return pc
