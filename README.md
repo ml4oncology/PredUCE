@@ -8,8 +8,8 @@ Please see [ml4oncology/make-clinical-dataset](https://github.com/ml4oncology/ma
 
 # Getting started
 ```bash
-conda env create -f env.yaml
 git clone --recurse-submodules https://github.com/ml4oncology/PredUCE
+conda env create -f env.yaml
 
 # optional
 pre-commit install
