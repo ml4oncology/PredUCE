@@ -221,12 +221,15 @@ def get_patient_characteristics(
     df: pd.DataFrame,
     top_regimens: Optional[Sequence] = None,
     top_cancers: Optional[Sequence] = None,
+    targets: Optional[Sequence] = None,
 ):
     """Get summary statistics of the patients in the cohort"""
     if top_cancers is None:
         top_cancers = []
     if top_regimens is None:
         top_regimens = []
+    if targets is None:
+        targets = []
 
     N = len(df)
     pc = {}  # patient characteristics
@@ -270,5 +273,10 @@ def get_patient_characteristics(
         pc[f"Cancer Site {CANCER_CODE_MAP[cancer[-3:]]}, No. (%)"] = (
             f"{num_cancers} ({num_cancers/N*100:.1f})"
         )
+
+    # targets
+    for target in targets:
+        num_targets = df[target].sum()
+        pc[f"{target.upper()}, No. (%)"] = f"{num_targets} ({num_targets/N*100:.1f})"
 
     return pc
