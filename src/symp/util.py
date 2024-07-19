@@ -13,7 +13,7 @@ from sklearn.metrics import confusion_matrix
 import torch
 from torch.utils.data import DataLoader
 
-from src.train import EHRDataset, pad_collate
+from .train import EHRDataset, pad_collate
 
 logger = logging.getLogger(__name__)
 

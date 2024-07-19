@@ -2,10 +2,10 @@ import argparse
 import pickle
 import pandas as pd
 
-from src.eval import process_results
-from src.shap import load_results
+from preduce.symp.eval import process_results
+from preduce.symp.shap import load_results
 
-from src.config import data_path_dict
+from preduce.symp.config import data_path_dict
 
 
 def main(train_results_path, test_df_path, output_file_path):

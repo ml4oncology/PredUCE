@@ -2,11 +2,12 @@
 Module to create summary tables
 """
 
+from collections import defaultdict
 from typing import Optional, Sequence
 
 import pandas as pd
 
-from common.src.constants import CANCER_CODE_MAP, DRUG_COLS, LAB_COLS, UNIT_MAP
+from ml_common.constants import CANCER_CODE_MAP, DRUG_COLS, LAB_COLS, UNIT_MAP
 
 
 def pre_and_post_treatment_missingness_summary(
@@ -18,7 +19,7 @@ def pre_and_post_treatment_missingness_summary(
     """Creates a summary table of the following:
 
     any_missingness_trt:
-        proportion (No, %) of treatments where the pre- and/or post-treatment symptom score was not measured
+        proportion (No, %) of treatments where the pre- and/or post-treatment score was not measured
     target_missingness_trt:
         proportion (No, %) of treatments where the post-treatment target is not measured, when the pre-treatment
         feature is measured
@@ -280,3 +281,25 @@ def get_patient_characteristics(
         pc[f"{target.upper()}, No. (%)"] = f"{num_targets} ({num_targets/N*100:.1f})"
 
     return pc
+
+
+def get_label_distribution(
+    Y: pd.DataFrame, metainfo: pd.DataFrame, with_respect_to: str = "sessions"
+) -> pd.DataFrame:
+    if with_respect_to == "patients":
+        dists = {}
+        for split, group in Y.groupby(metainfo["split"]):
+            count = defaultdict(dict)
+            mrn = metainfo.loc[group.index, "mrn"]
+            for target, labels in group.items():
+                count[1][target] = mrn[labels == 1].nunique()
+                count[0][target] = mrn.nunique() - count[1][target]
+            dists[split] = pd.DataFrame(count).T
+    elif with_respect_to == "sessions":
+        dists = {
+            split: group.apply(lambda x: x.value_counts())
+            for split, group in Y.groupby(metainfo["split"])
+        }
+    dists["Total"] = dists["Train"] + dists["Valid"] + dists["Test"]
+    dists = pd.concat(dists).T
+    return dists

@@ -9,6 +9,8 @@ Please see [ml4oncology/make-clinical-dataset](https://github.com/ml4oncology/ma
 # Getting started
 ```bash
 git clone https://github.com/ml4oncology/PredUCE
+conda env create -f envs/<env_name>.yaml
+conda activate aim2reduce
 pip install -e .
 
 # optional
