@@ -19,16 +19,6 @@ logger = logging.getLogger(__name__)
 
 
 ###############################################################################
-# I/O
-###############################################################################
-def initialize_folders():
-    main_folders = ["logs", "models", "result/tables"]
-    for folder in main_folders:
-        if not os.path.exists(f"./{folder}"):
-            os.makedirs(f"./{folder}")
-
-
-###############################################################################
 #  Data manipulation
 ###############################################################################
 def calculate_mean_cal_error(prob_true, prob_pred, n_bins=10):
