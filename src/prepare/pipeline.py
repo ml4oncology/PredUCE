@@ -7,8 +7,8 @@ from collections.abc import Sequence
 import pandas as pd
 
 from .filter import exclude_immediate_events, indicate_immediate_events
-from common.src.constants import SYMP_COLS
-from common.src.prep import PrepData, Splitter
+from ml_common.constants import SYMP_COLS
+from ml_common.prep import PrepData, Splitter
 
 from warnings import simplefilter
 

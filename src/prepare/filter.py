@@ -8,7 +8,7 @@ import logging
 from tqdm import tqdm
 import pandas as pd
 
-from common.src.util import get_excluded_numbers
+from ml_common.util import get_excluded_numbers
 
 from warnings import simplefilter
 
