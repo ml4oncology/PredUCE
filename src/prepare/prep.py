@@ -2,7 +2,11 @@
 Module to prepare data for model consumption
 """
 
+import os
+import subprocess
+
 import pandas as pd
+import yaml
 
 
 def fill_missing_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -16,3 +20,64 @@ def fill_missing_data(df: pd.DataFrame) -> pd.DataFrame:
         df[col] = df[col].fillna(df[col].max())
 
     return df
+
+
+###############################################################################
+# Anchor
+###############################################################################
+def anchor_features_to_clinic_dates(script_path: str):
+    """Create feature dataset anchored to clinic dates by
+    calling the make-clincial-dataset package's combine_features script
+
+    See https://github.com/ml4oncology/make-clinical-dataset
+
+    Args:
+        script_path: path to the combine_features script
+    """
+    cfg = dict(
+        trt_lookback_window=28,
+        lab_lookback_window=5,
+        symp_lookback_window=30,
+        ed_visit_lookback_window=5,
+    )
+    with open("./data/config.yaml", "w") as file:
+        yaml.dump(cfg, file)
+
+    # ensure the necessary files are present to run the script
+    # you will need to copy the following from make-clinical-dataset/data/interim to ./data/interim
+    for filename in [
+        "lab",
+        "symptom",
+        "demographic",
+        "emergency_room_visit",
+        "treatment",
+    ]:
+        assert os.path.exists(
+            f"./data/interim/{filename}.parquet.gzip"
+        ), "Please retreive the necessary files"
+    # same with this file from make-clinical-dataset/data/external to ./data/external
+    assert os.path.exists(
+        "./data/external/opis_drug_list.csv"
+    ), "Please retreive the necessary files"
+
+    # call the script
+    res = subprocess.run(
+        [
+            "python",
+            f"{script_path}/combine_features.py",
+            "--align-on",
+            "./data/processed/assessment_dates.csv",
+            "--date-column",
+            "clinic_date",
+            "--data-dir",
+            "./data",
+            "--output-dir",
+            "./data/processed",
+            "--output-filename",
+            "clinic_centered_feature_dataset",
+            "--config-path",
+            "./data/config.yaml",
+        ],
+        capture_output=True,
+    )
+    assert res.returncode == 0
