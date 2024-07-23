@@ -13,13 +13,13 @@ from ml_common.util import split_and_parallelize
 
 
 def get_event_labels(
-    chemo_df: pd.DataFrame,
+    df: pd.DataFrame,
     event_df: pd.DataFrame,
     event_name: str,
     lookahead_window: int = 30,
     extra_cols: Optional[list[str]] = None,
 ) -> pd.DataFrame:
-    """Extract labels for events (i.e. Emergency Department visit, hospitalization, etc) occuring within the next X days
+    """Extract labels for events (i.e. emergency department visit, hospitalization, etc) occuring within the next X days
     after visit date
 
     Args:
@@ -37,17 +37,17 @@ def get_event_labels(
         lookahead_window=lookahead_window,
         extra_cols=extra_cols,
     )
-    result = split_and_parallelize((chemo_df, event_df), worker)
+    result = split_and_parallelize((df, event_df), worker)
     cols = ["index", f"target_{event_name}_date"] + [
         f"target_{col}" for col in extra_cols
     ]
     result = pd.DataFrame(result, columns=cols).set_index("index")
-    chemo_df = chemo_df.join(result)
+    df = df.join(result)
 
     # convert to binary label
-    chemo_df[f"target_{event_name}"] = chemo_df[f"target_{event_name}_date"].notnull()
+    df[f"target_{event_name}"] = df[f"target_{event_name}_date"].notnull()
 
-    return chemo_df
+    return df
 
 
 def event_worker(
@@ -59,17 +59,14 @@ def event_worker(
     if extra_cols is None:
         extra_cols = []
 
-    chemo_df, event_df = partition
+    df, event_df = partition
     result = []
-    for mrn, chemo_group in tqdm(chemo_df.groupby("mrn")):
+    for mrn, group in df.groupby("mrn"):
         event_group = event_df.query("mrn == @mrn")
         adm_dates = event_group["event_date"]
 
-        for chemo_idx, visit_date in chemo_group["treatment_date"].items():
-            # get target - closest event from visit date within lookahead window
-            # NOTE: if event occured on treatment date, most likely the event
-            # occured right after patient received treatment. We will deal with
-            # it in downstream pipeline
+        for idx, visit_date in group["assessment_date"].items():
+            # get the closest event from visit date within lookahead window
             mask = adm_dates.between(
                 visit_date, visit_date + pd.Timedelta(days=lookahead_window)
             )
@@ -80,5 +77,5 @@ def event_worker(
             tmp = event_group.loc[mask].iloc[0]
             event_date = tmp["event_date"]
             extra_info = tmp[extra_cols].tolist()
-            result.append([chemo_idx, event_date] + extra_info)
+            result.append([idx, event_date] + extra_info)
     return result
