@@ -35,9 +35,9 @@ def anchor_features_to_clinic_dates(script_path: str):
         script_path: path to the combine_features script
     """
     cfg = dict(
-        trt_lookback_window=28,
-        lab_lookback_window=5,
-        symp_lookback_window=30,
+        trt_lookback_window=[-28, -1],
+        lab_lookback_window=[-5, -1],
+        symp_lookback_window=[-30, -1],
         ed_visit_lookback_window=5,
     )
     with open("./data/config.yaml", "w") as file:
