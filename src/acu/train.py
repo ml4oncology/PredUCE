@@ -3,7 +3,6 @@ Module to train and tune the models using K-fold cross validation
 """
 
 import warnings
-import multiprocessing as mp
 from functools import partial
 
 import lightgbm as lgb
@@ -13,11 +12,11 @@ from bayes_opt import BayesianOptimization
 from bayes_opt.logger import JSONLogger, ScreenLogger
 from bayes_opt.event import Events
 from lightgbm import LGBMClassifier
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.svm import SVC
 from xgboost import XGBClassifier
 
@@ -39,7 +38,12 @@ algs = {
 # Training
 ###############################################################################
 def train_model(
-    X: pd.DataFrame, Y: pd.DataFrame, mrns: pd.Series, alg: str, best_params: dict
+    X: pd.DataFrame,
+    Y: pd.DataFrame,
+    mrns: pd.Series,
+    alg: str,
+    best_params: dict,
+    calibrate: bool = True,
 ):
     models = {}
     for target, label in Y.items():
@@ -47,7 +51,9 @@ def train_model(
         if alg in ["XGB", "LGBM"]:
             kwargs["scale_pos_weight"] = sum(label == 0) / sum(label == 1)
 
-        models[target] = cross_validate(X, label, mrns, alg, **kwargs)
+        models[target] = cross_validate(
+            X, label, mrns, alg, calibrate=calibrate, **kwargs
+        )
 
     return models
 
@@ -59,17 +65,18 @@ def train_models(X: pd.DataFrame, Y: pd.DataFrame, mrns: pd.Series, best_params:
 def cross_validate(
     X: pd.DataFrame,
     Y: pd.Series,
-    mrns: pd.Series,
+    metainfo: pd.DataFrame,
     alg: str,
-    return_valid_data: bool = False,
+    calibrate: bool = False,
     **kwargs,
 ):
-    models, valid_data = [], []
-    kf = StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42)
-    for fold, (train_idxs, valid_idxs) in enumerate(kf.split(X, Y, mrns)):
+    models = []
+    for fold in metainfo["cv_folds"].unique():
+        mask = metainfo["cv_folds"] == fold
+
         # get the data splits
-        X_train, X_valid = X.iloc[train_idxs].copy(), X.iloc[valid_idxs].copy()
-        Y_train, Y_valid = Y.iloc[train_idxs].copy(), Y.iloc[valid_idxs].copy()
+        X_train, X_valid = X[~mask].copy(), X[mask].copy()
+        Y_train, Y_valid = Y[~mask].copy(), Y[mask].copy()
 
         # train the model
         if alg == "XGB":
@@ -85,13 +92,15 @@ def cross_validate(
             }
         else:
             fit_kwargs = {}
+
         model = algs[alg](**kwargs)
         model.fit(X_train, Y_train, **fit_kwargs)
-        models.append(model)
-        valid_data.append((X_valid, Y_valid))
 
-    if return_valid_data:
-        return models, valid_data
+        if calibrate:
+            model = CalibratedClassifierCV(model, method="isotonic", cv="prefit")
+            model.fit(X_valid, Y_valid)
+
+        models.append(model)
 
     return models
 
@@ -100,11 +109,11 @@ def cross_validate(
 # Hyperparameter tuning
 ###############################################################################
 def tune_params(
-    alg: str, X: pd.DataFrame, Y: pd.Series, mrns: pd.Series, verbose: int = 2
+    alg: str, X: pd.DataFrame, Y: pd.Series, metainfo: pd.DataFrame, verbose: int = 2
 ):
     """Tunes hyperparameters for a given algorithm using Bayesian Optimization."""
     hyperparam_config = model_tuning_param[alg]
-    data = (X, Y, mrns)
+    data = (X, Y, metainfo)
     bo = BayesianOptimization(
         f=partial(eval_func, alg=alg, data=data),
         pbounds=hyperparam_config,
@@ -147,15 +156,15 @@ def convert_params(params):
 
 
 def eval_func(alg: str, data: tuple[pd.DataFrame, pd.Series, pd.Series], **kwargs):
-    X, Y, mrns = data
+    X, Y, metainfo = data
 
     kwargs = {**model_static_param[alg], **convert_params(kwargs)}
-    models, valid_data = cross_validate(
-        X, Y, mrns, alg, return_valid_data=True, **kwargs
-    )
+    models = cross_validate(X, Y, metainfo, alg, **kwargs)
 
     result = []
-    for model, (X_valid, Y_valid) in zip(models, valid_data):
+    for fold, model in enumerate(models):
+        mask = metainfo["cv_folds"] == fold
+        X_valid, Y_valid = X[mask], Y[mask]
         assert model.classes_[1] == 1  # positive class is at index 1
         pred_prob = model.predict_proba(X_valid)[:, 1]
         result.append(roc_auc_score(Y_valid, pred_prob))
@@ -166,14 +175,14 @@ def eval_func(alg: str, data: tuple[pd.DataFrame, pd.Series, pd.Series], **kwarg
 ###############################################################################
 # Feature Selection
 ###############################################################################
-def feature_selection_by_lasso(X: pd.DataFrame, Y: pd.Series, mrns: pd.Series):
+def feature_selection_by_lasso(X: pd.DataFrame, Y: pd.Series, metainfo: pd.DataFrame):
     kwargs = {"C": 0.1, **model_static_param["LASSO"]}
-    models, valid_data = cross_validate(
-        X, Y, mrns, alg="LASSO", return_valid_data=True, **kwargs
-    )
+    models = cross_validate(X, Y, metainfo, alg="LASSO", **kwargs)
 
     results, weights = {}, {}
-    for fold, (model, (X_valid, Y_valid)) in enumerate(zip(models, valid_data)):
+    for fold, model in enumerate(models):
+        mask = metainfo["cv_folds"] == fold
+        X_valid, Y_valid = X[mask], Y[mask]
         pred_prob = model.predict_proba(X_valid)[:, 1]
         results[f"Fold {fold+1}"] = {"AUROC": roc_auc_score(Y_valid, pred_prob)}
         weights[f"Fold {fold+1}"] = pd.Series(model.coef_[0], model.feature_names_in_)

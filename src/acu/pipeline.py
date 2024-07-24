@@ -2,7 +2,9 @@
 Module for final data preparation pipelines
 """
 
+import numpy as np
 import pandas as pd
+from sklearn.model_selection import StratifiedGroupKFold
 
 from ml_common.engineer import (
     collapse_rare_categories,
@@ -64,13 +66,28 @@ class PrepACUData(PrepData):
         train_data = self.transform_data(train_data, data_name="training")
         test_data = self.transform_data(test_data, data_name="testing")
 
+        # split training data into folds for cross validation
+        # NOTE: feel free to add more columns for different fold splits by looping through different random states
+        kf = StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42)
+        kf_splits = kf.split(
+            X=train_data,
+            y=train_data["target_ED_visit"],  # placeholder
+            groups=train_data["mrn"],
+        )
+        cv_folds = np.zeros(len(train_data))
+        for fold, (_, valid_idxs) in enumerate(kf_splits):
+            cv_folds[valid_idxs] = fold
+        train_data["cv_folds"] = cv_folds
+
         # create a split column and combine the data for convenience
         train_data["split"], test_data["split"] = "Train", "Test"
         data = pd.concat([train_data, test_data])
 
         # split into input features, output labels, and metainfo
         cols = data.columns
-        meta_cols = ["mrn", "split"] + cols[cols.str.contains("date")].tolist()
+        meta_cols = ["mrn", "split", "cv_folds"] + cols[
+            cols.str.contains("date")
+        ].tolist()
         targ_cols = cols[
             cols.str.contains("target_") & ~cols.str.contains("date")
         ].tolist()
