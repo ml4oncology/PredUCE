@@ -70,15 +70,13 @@ def exclude_immediate_events(
 
 
 def keep_only_one_per_week(df: pd.DataFrame) -> list[int]:
-    """Keep only the first treatment session of a given week
+    """Keep only the first visit of a given week
     Drop all other sessions
     """
     keep_idxs = []
-    for mrn, group in tqdm(
-        df.groupby("mrn"), desc="Getting the first sessions of a given week..."
-    ):
+    for mrn, group in df.groupby("mrn"):
         previous_date = pd.Timestamp.min
-        for i, visit_date in group["treatment_date"].items():
+        for i, visit_date in group["assessment_date"].items():
             if visit_date >= previous_date + pd.Timedelta(days=7):
                 keep_idxs.append(i)
                 previous_date = visit_date

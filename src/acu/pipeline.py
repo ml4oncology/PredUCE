@@ -13,7 +13,12 @@ from ml_common.engineer import (
 )
 from ml_common.filter import drop_highly_missing_features, drop_unused_drug_features
 from ml_common.prep import PrepData, Splitter
-from ..prepare.filter import drop_samples_outside_study_date, exclude_immediate_events
+from ml_common.util import get_excluded_numbers
+from ..prepare.filter import (
+    drop_samples_outside_study_date,
+    exclude_immediate_events,
+    keep_only_one_per_week,
+)
 from ..prepare.prep import fill_missing_data
 from .label import get_event_labels
 
@@ -25,9 +30,11 @@ simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 class PrepACUData(PrepData):
     def preprocess(self, df: pd.DataFrame, emerg: pd.DataFrame) -> pd.DataFrame:
         # keep only the first treatment session of a given week
-        # df = keep_only_one_per_week(df)
+        df = keep_only_one_per_week(df)
+
         # get the change in measurement since previous assessment
         df = get_change_since_prev_session(df)
+
         # extract labels
         df = get_event_labels(
             df,
@@ -35,19 +42,59 @@ class PrepACUData(PrepData):
             event_name="ED_visit",
             extra_cols=["CTAS_score", "CEDIS_complaint"],
         )
-        # filter out dates before 2014 and after 2020
-        df = drop_samples_outside_study_date(df)
+
+        # filter out dates before 2012 and after 2020
+        df = drop_samples_outside_study_date(
+            df, start_date="2012-01-01", end_date="2019-12-31"
+        )
+
         # drop drug features that were never used
         df = drop_unused_drug_features(df)
+
         # fill missing data that can be filled heuristically
         df = fill_missing_data(df)
+
+        # To align with EPIC system for silent deployment
+        #   1. remove drug and morphology features
+        #   2. restrict to GI patients
+        # This will be temporary
+        df = df.loc[:, ~df.columns.str.contains("morphology|%_ideal_dose")]
+        mask = df["regimen"].str.startswith("GI-")
+        get_excluded_numbers(df, mask, context=" not from GI department")
+        df = df[mask]
+
         # drop features with high missingness
         keep_cols = df.columns[df.columns.str.contains("target_")]
         df = drop_highly_missing_features(df, missing_thresh=80, keep_cols=keep_cols)
+
+        # drop samples with high missingness
+        missing_thresh = 0.7
+        keep_cols = df.columns[~df.columns.str.contains("target_|date|mrn")]
+        # temporarily reverse the encoding for cancer-site
+        tmp = df[keep_cols].copy()
+        cancer_site_cols = tmp.columns[tmp.columns.str.contains("cancer_site")]
+        tmp["cancer_site"] = tmp[cancer_site_cols].apply(
+            lambda mask: ", ".join(
+                cancer_site_cols[mask].str.removeprefix("cancer_site_")
+            ),
+            axis=1,
+        )
+        tmp["cancer_site"] = tmp["cancer_site"].replace("", None)
+        tmp = tmp.drop(columns=cancer_site_cols)
+        mask = tmp.isnull().mean(axis=1) < missing_thresh
+        get_excluded_numbers(
+            df,
+            mask,
+            context=f" with at least {missing_thresh*100} percent of features missing",
+        )
+        df = df[mask]
+
         # create missingness features
         df = get_missingness_features(df)
+
         # collapse rare morphology and cancer sites into 'Other' category
         df = collapse_rare_categories(df, catcols=["cancer_site", "morphology"])
+
         return df
 
     def prepare(
@@ -55,12 +102,32 @@ class PrepACUData(PrepData):
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         # split the data - create training, validation, testing set
         splitter = Splitter()
-        train_data, test_data = splitter.temporal_split(df, split_date="2018-02-01")
+        train_data, test_data = splitter.temporal_split(
+            df, split_date="2018-02-01", visit_col="assessment_date"
+        )
 
         # Remove sessions where event occured immediately afterwards on the train and valid set ONLY
         train_data = exclude_immediate_events(
             train_data, date_cols=["target_ED_visit_date"]
         )
+
+        # If there are no prior values for height, weight, body surface area, take the median based on sex
+        # TODO: maybe support this in ml_common.prep.imputer?
+        mes_median = (
+            train_data.groupby("female")[["height", "weight", "body_surface_area"]]
+            .median()
+            .T
+        )
+        mes_median.columns = ["F", "M"]
+
+        def impute_mes(data):
+            female = data["female"]
+            data[female] = data[female].fillna(mes_median["F"])
+            data[~female] = data[~female].fillna(mes_median["M"])
+            return data
+
+        train_data = impute_mes(train_data)
+        test_data = impute_mes(test_data)
 
         # IMPORTANT: always make sure train data is done first for one-hot encoding, clipping, imputing, scaling
         train_data = self.transform_data(train_data, data_name="training")

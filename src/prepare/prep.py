@@ -36,7 +36,7 @@ def anchor_features_to_clinic_dates(script_path: str):
     """
     cfg = dict(
         trt_lookback_window=[-28, -1],
-        lab_lookback_window=[-5, -1],
+        lab_lookback_window=[-7, -1],
         symp_lookback_window=[-30, -1],
         ed_visit_lookback_window=5,
     )
