@@ -28,7 +28,20 @@ simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 
 class PrepACUData(PrepData):
-    def preprocess(self, df: pd.DataFrame, emerg: pd.DataFrame) -> pd.DataFrame:
+    def preprocess(
+        self,
+        df: pd.DataFrame,
+        emerg: pd.DataFrame,
+        drop_cols_missing_thresh: int = 80,
+        drop_rows_missing_thresh: int = 70,
+    ) -> pd.DataFrame:
+        """
+        Args:
+            drop_cols_missing_thresh: the percentage of missingness in which a column would be dropped.
+                If set to -1, no columns will be dropped
+            drop_rows_missing_thresh: the percentage of missingness in which a row would be dropped.
+                If set to -1, no rows will be dropped
+        """
         # keep only the first treatment session of a given week
         df = keep_only_one_per_week(df)
 
@@ -63,31 +76,34 @@ class PrepACUData(PrepData):
         get_excluded_numbers(df, mask, context=" not from GI department")
         df = df[mask]
 
-        # drop features with high missingness
-        keep_cols = df.columns[df.columns.str.contains("target_")]
-        df = drop_highly_missing_features(df, missing_thresh=80, keep_cols=keep_cols)
+        if drop_cols_missing_thresh != -1:
+            # drop features with high missingness
+            keep_cols = df.columns[df.columns.str.contains("target_")]
+            df = drop_highly_missing_features(
+                df, missing_thresh=drop_cols_missing_thresh, keep_cols=keep_cols
+            )
 
-        # drop samples with high missingness
-        missing_thresh = 0.7
-        keep_cols = df.columns[~df.columns.str.contains("target_|date|mrn")]
-        # temporarily reverse the encoding for cancer-site
-        tmp = df[keep_cols].copy()
-        cancer_site_cols = tmp.columns[tmp.columns.str.contains("cancer_site")]
-        tmp["cancer_site"] = tmp[cancer_site_cols].apply(
-            lambda mask: ", ".join(
-                cancer_site_cols[mask].str.removeprefix("cancer_site_")
-            ),
-            axis=1,
-        )
-        tmp["cancer_site"] = tmp["cancer_site"].replace("", None)
-        tmp = tmp.drop(columns=cancer_site_cols)
-        mask = tmp.isnull().mean(axis=1) < missing_thresh
-        get_excluded_numbers(
-            df,
-            mask,
-            context=f" with at least {missing_thresh*100} percent of features missing",
-        )
-        df = df[mask]
+        if drop_rows_missing_thresh != -1:
+            # drop samples with high missingness
+            keep_cols = df.columns[~df.columns.str.contains("target_|date|mrn")]
+            tmp = df[keep_cols].copy()
+            # temporarily reverse the encoding for cancer-site
+            cancer_site_cols = tmp.columns[tmp.columns.str.contains("cancer_site")]
+            tmp["cancer_site"] = tmp[cancer_site_cols].apply(
+                lambda mask: ", ".join(
+                    cancer_site_cols[mask].str.removeprefix("cancer_site_")
+                ),
+                axis=1,
+            )
+            tmp["cancer_site"] = tmp["cancer_site"].replace("", None)
+            tmp = tmp.drop(columns=cancer_site_cols)
+            mask = tmp.isnull().mean(axis=1) * 100 < drop_rows_missing_thresh
+            get_excluded_numbers(
+                df,
+                mask,
+                context=f" with at least {drop_rows_missing_thresh} percent of features missing",
+            )
+            df = df[mask]
 
         # create missingness features
         df = get_missingness_features(df)
