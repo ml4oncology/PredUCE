@@ -159,5 +159,15 @@ class PrepACUData(PrepData):
             cols.str.contains("target_") & ~cols.str.contains("date")
         ].tolist()
         feat_cols = cols.drop(meta_cols + targ_cols).tolist()
-        X, Y, metainfo = data[feat_cols], data[targ_cols], data[meta_cols]
+        X, Y, metainfo = (
+            data[feat_cols].copy(),
+            data[targ_cols].copy(),
+            data[meta_cols].copy(),
+        )
+
+        # clean up Y
+        for col in ["target_CEDIS_complaint", "target_CTAS_score"]:
+            metainfo[col] = Y.pop(col)
+        Y.columns = Y.columns.str.replace("target_", "")
+
         return X, Y, metainfo

@@ -2,6 +2,8 @@
 Module to prepare data for model consumption
 """
 
+from typing import Optional
+
 import os
 import subprocess
 
@@ -25,8 +27,10 @@ def fill_missing_data(df: pd.DataFrame) -> pd.DataFrame:
 ###############################################################################
 # Anchor
 ###############################################################################
-def anchor_features_to_clinic_dates(script_path: str):
-    """Create feature dataset anchored to clinic dates by
+def anchor_features_to_assessment_dates(
+    script_path: str, output_filename: Optional[str] = None
+):
+    """Create feature dataset anchored to assessment dates by
     calling the make-clincial-dataset package's combine_features script
 
     See https://github.com/ml4oncology/make-clinical-dataset
@@ -34,6 +38,9 @@ def anchor_features_to_clinic_dates(script_path: str):
     Args:
         script_path: path to the combine_features script
     """
+    if output_filename is None:
+        output_filename = "assessment_centered_feature_dataset"
+
     cfg = dict(
         trt_lookback_window=[-28, -1],
         lab_lookback_window=[-7, -1],
@@ -68,13 +75,13 @@ def anchor_features_to_clinic_dates(script_path: str):
             "--align-on",
             "./data/processed/assessment_dates.csv",
             "--date-column",
-            "clinic_date",
+            "assessment_date",
             "--data-dir",
             "./data",
             "--output-dir",
             "./data/processed",
             "--output-filename",
-            "clinic_centered_feature_dataset",
+            output_filename,
             "--config-path",
             "./data/config.yaml",
         ],
