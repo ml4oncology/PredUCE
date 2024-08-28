@@ -1,7 +1,5 @@
 # Standard library imports
-from pathlib import Path
 import warnings
-import sys
 import pickle
 import argparse
 import dill
@@ -20,25 +18,21 @@ import xgboost as xgb
 from sklearn.isotonic import IsotonicRegression
 from bayes_opt import BayesianOptimization
 
-# Local application/library specific imports
-ROOT_DIR = Path(__file__).parent.parent.as_posix()
-sys.path.append(ROOT_DIR)
+from preduce.models.GRU import GRU
+from preduce.models.LSTM import LSTM
+from preduce.models.MLP import MLP
+from preduce.models.TCN import TCN
+from preduce.models.Transformer import Transformer
 
-from src.models.GRU import GRU
-from src.models.LSTM import LSTM
-from src.models.MLP import MLP
-from src.models.TCN import TCN
-from src.models.Transformer import Transformer
-
-from src.train import (
+from preduce.symp.train import (
     EHRDataset,
     pad_collate,
     train_and_evaluate_dl,
     masked_binary_cross_entropy_with_logits,
 )
-from src.config import bounds_dict, data_path_dict
+from preduce.symp.config import bounds_dict, data_path_dict
 
-from src.train import get_neg_to_pos_ratios
+from preduce.symp.train import get_neg_to_pos_ratios
 
 
 def perform_bayesian_optimization(
