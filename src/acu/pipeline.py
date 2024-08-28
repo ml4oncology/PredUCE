@@ -116,7 +116,7 @@ class PrepACUData(PrepData):
     def prepare(
         self, df: pd.DataFrame, event_name: str
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        # split the data - create training, validation, testing set
+        # split the data - create training and testing set
         splitter = Splitter()
         train_data, test_data = splitter.temporal_split(
             df, split_date="2018-02-01", visit_col="assessment_date"

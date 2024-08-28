@@ -40,7 +40,7 @@ algs = {
 def train_model(
     X: pd.DataFrame,
     Y: pd.DataFrame,
-    mrns: pd.Series,
+    metainfo: pd.DataFrame,
     alg: str,
     best_params: dict,
     calibrate: bool = True,
@@ -52,14 +52,16 @@ def train_model(
             kwargs["scale_pos_weight"] = sum(label == 0) / sum(label == 1)
 
         models[target] = cross_validate(
-            X, label, mrns, alg, calibrate=calibrate, **kwargs
+            X, label, metainfo, alg, calibrate=calibrate, **kwargs
         )
 
     return models
 
 
-def train_models(X: pd.DataFrame, Y: pd.DataFrame, mrns: pd.Series, best_params: dict):
-    return {alg: train_model(X, Y, mrns, alg, best_params) for alg in algs}
+def train_models(
+    X: pd.DataFrame, Y: pd.DataFrame, metainfo: pd.DataFrame, best_params: dict
+):
+    return {alg: train_model(X, Y, metainfo, alg, best_params) for alg in algs}
 
 
 def cross_validate(
