@@ -5,7 +5,6 @@ Module to filter features and samples
 from collections.abc import Sequence
 import logging
 
-from tqdm import tqdm
 import pandas as pd
 
 from ml_common.util import get_excluded_numbers
@@ -15,15 +14,6 @@ from warnings import simplefilter
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 logger = logging.getLogger(__name__)
-
-
-def drop_samples_outside_study_date(
-    df: pd.DataFrame, start_date: str = "2014-01-01", end_date: str = "2019-12-31"
-) -> pd.DataFrame:
-    mask = df["assessment_date"].between(start_date, end_date)
-    get_excluded_numbers(df, mask, context=f" before {start_date} and after {end_date}")
-    df = df[mask]
-    return df
 
 
 def indicate_immediate_events(
@@ -66,22 +56,4 @@ def exclude_immediate_events(
         df, ~mask, context=" in which patient had a target event in less than 2 days."
     )
     df = df[~mask]
-    return df
-
-
-def keep_only_one_per_week(df: pd.DataFrame) -> list[int]:
-    """Keep only the first visit of a given week
-    Drop all other sessions
-    """
-    keep_idxs = []
-    for mrn, group in df.groupby("mrn"):
-        previous_date = pd.Timestamp.min
-        for i, visit_date in group["assessment_date"].items():
-            if visit_date >= previous_date + pd.Timedelta(days=7):
-                keep_idxs.append(i)
-                previous_date = visit_date
-    get_excluded_numbers(
-        df, mask=df.index.isin(keep_idxs), context=" not first of a given week"
-    )
-    df = df.loc[keep_idxs]
     return df
