@@ -34,7 +34,7 @@ class PrepACUData(PrepData):
         df: pd.DataFrame,
         emerg: pd.DataFrame,
         drop_cols_missing_thresh: int = 80,
-        drop_rows_missing_thresh: int = 70,
+        drop_rows_missing_thresh: int = 80,
     ) -> pd.DataFrame:
         """
         Args:
@@ -127,24 +127,6 @@ class PrepACUData(PrepData):
         train_data = exclude_immediate_events(
             train_data, date_cols=["target_ED_visit_date"]
         )
-
-        # If there are no prior values for height, weight, body surface area, take the median based on sex
-        # TODO: maybe support this in ml_common.prep.imputer?
-        mes_median = (
-            train_data.groupby("female")[["height", "weight", "body_surface_area"]]
-            .median()
-            .T
-        )
-        mes_median.columns = ["F", "M"]
-
-        def impute_mes(data):
-            female = data["female"]
-            data[female] = data[female].fillna(mes_median["F"])
-            data[~female] = data[~female].fillna(mes_median["M"])
-            return data
-
-        train_data = impute_mes(train_data)
-        test_data = impute_mes(test_data)
 
         # IMPORTANT: always make sure train data is done first for one-hot encoding, clipping, imputing, scaling
         train_data = self.transform_data(train_data, data_name="training")
