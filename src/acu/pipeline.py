@@ -17,10 +17,9 @@ from ml_common.filter import (
     drop_unused_drug_features,
     keep_only_one_per_week,
 )
-from ml_common.prep import PrepData, Splitter
+from ml_common.prep import PrepData, Splitter, fill_missing_data_heuristically
 from ml_common.util import get_excluded_numbers
 from ..prepare.filter import exclude_immediate_events
-from ..prepare.prep import fill_missing_data
 from .label import get_event_labels
 
 from warnings import simplefilter
@@ -65,8 +64,8 @@ class PrepACUData(PrepData):
         # drop drug features that were never used
         df = drop_unused_drug_features(df)
 
-        # fill missing data that can be filled heuristically
-        df = fill_missing_data(df)
+        # fill missing data that can be filled heuristically (zeros, max values, etc)
+        df = fill_missing_data_heuristically(df)
 
         # To align with EPIC system for silent deployment
         #   1. remove drug and morphology features
@@ -115,7 +114,7 @@ class PrepACUData(PrepData):
         return df
 
     def prepare(
-        self, df: pd.DataFrame, event_name: str
+        self, df: pd.DataFrame
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         # split the data - create training and testing set
         splitter = Splitter()
