@@ -19,7 +19,7 @@ from ml_common.filter import (
 )
 from ml_common.prep import PrepData, Splitter, fill_missing_data_heuristically
 from ml_common.util import get_excluded_numbers
-from ..prepare.filter import exclude_immediate_events
+from ..filter import exclude_immediate_events
 from .label import get_event_labels
 
 from warnings import simplefilter

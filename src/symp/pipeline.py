@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 import pandas as pd
 
-from ..prepare.filter import indicate_immediate_events
+from ..filter import indicate_immediate_events
 from ml_common.constants import SYMP_COLS
 from ml_common.prep import PrepData, Splitter
 
