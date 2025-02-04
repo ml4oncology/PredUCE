@@ -75,6 +75,7 @@ def train_model(
         set_best_to_refit_full=refit_on_full_data,
         **extra_fit_kwargs,
     )
+    print(init_kwargs, fit_kwargs)
 
     if quality == "medium":
         # not using cross-validation, use the following as the tuning set
@@ -84,8 +85,6 @@ def train_model(
     else:
         # use our own cross validation folds
         init_kwargs["groups"] = "cv_folds"
-
-    print(init_kwargs, fit_kwargs)
 
     predictor = TabularPredictor(label=target, **init_kwargs).fit(data, **fit_kwargs)
     return predictor

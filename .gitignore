@@ -8,3 +8,4 @@ models/
 result/
 notebooks/debug
 *.egg-info
+AutogluonModels
