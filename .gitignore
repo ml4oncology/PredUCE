@@ -1,5 +1,6 @@
 **/.ipynb_checkpoints
 **/__pycache__
+.pytest_cache
 .DS_store
 .ruff_cache
 data/
