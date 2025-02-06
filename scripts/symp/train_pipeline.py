@@ -18,11 +18,11 @@ import xgboost as xgb
 from sklearn.isotonic import IsotonicRegression
 from bayes_opt import BayesianOptimization
 
-from preduce.models.GRU import GRU
-from preduce.models.LSTM import LSTM
-from preduce.models.MLP import MLP
-from preduce.models.TCN import TCN
-from preduce.models.Transformer import Transformer
+from preduce.symp.models.GRU import GRU
+from preduce.symp.models.LSTM import LSTM
+from preduce.symp.models.MLP import MLP
+from preduce.symp.models.TCN import TCN
+from preduce.symp.models.Transformer import Transformer
 
 from preduce.symp.train import (
     EHRDataset,

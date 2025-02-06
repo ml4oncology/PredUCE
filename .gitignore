@@ -1,5 +1,6 @@
 **/.ipynb_checkpoints
 **/__pycache__
+.pytest_cache
 .DS_store
 .ruff_cache
 data/
@@ -8,3 +9,4 @@ models/
 result/
 notebooks/debug
 *.egg-info
+AutogluonModels

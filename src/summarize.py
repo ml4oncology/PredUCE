@@ -281,26 +281,3 @@ def get_patient_characteristics(
         pc[f"{target.upper()}, No. (%)"] = f"{num_targets} ({num_targets/N*100:.1f})"
 
     return pc
-
-
-def get_label_distribution(
-    Y: pd.DataFrame, metainfo: pd.DataFrame, with_respect_to: str = "sessions"
-) -> pd.DataFrame:
-    dists = {"Total": 0}
-
-    for split, group in Y.groupby(metainfo["split"]):
-        if with_respect_to == "patients":
-            count = defaultdict(dict)
-            mrn = metainfo.loc[group.index, "mrn"]
-            for target, labels in group.items():
-                count[1][target] = mrn[labels == 1].nunique()
-                count[0][target] = mrn.nunique() - count[1][target]
-            dists[split] = pd.DataFrame(count).T
-
-        elif with_respect_to == "sessions":
-            dists[split] = group.apply(lambda x: x.value_counts())
-
-        dists["Total"] += dists[split]
-
-    dists = pd.concat(dists).T
-    return dists
