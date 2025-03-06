@@ -20,7 +20,6 @@ from ml_common.filter import (
 from ml_common.prep import PrepData, Splitter, fill_missing_data_heuristically
 from ml_common.util import get_excluded_numbers
 from ..filter import exclude_immediate_events
-from .label import get_event_labels
 
 from warnings import simplefilter
 
@@ -31,9 +30,10 @@ class PrepACUData(PrepData):
     def preprocess(
         self,
         df: pd.DataFrame,
-        emerg: pd.DataFrame,
         drop_cols_missing_thresh: int = 80,
         drop_rows_missing_thresh: int = 80,
+        start_date: str = "2012-01-01",
+        end_date: str = "2019-12-31",
     ) -> pd.DataFrame:
         """
         Args:
@@ -48,17 +48,9 @@ class PrepACUData(PrepData):
         # get the change in measurement since previous assessment
         df = get_change_since_prev_session(df)
 
-        # extract labels
-        df = get_event_labels(
-            df,
-            emerg,
-            event_name="ED_visit",
-            extra_cols=["CTAS_score", "CEDIS_complaint"],
-        )
-
         # filter out dates before 2012 and after 2020
         df = drop_samples_outside_study_date(
-            df, start_date="2012-01-01", end_date="2019-12-31"
+            df, start_date=start_date, end_date=end_date
         )
 
         # drop drug features that were never used
@@ -124,10 +116,8 @@ class PrepACUData(PrepData):
             df, split_date="2018-02-01", visit_col="assessment_date"
         )
 
-        # Remove sessions where event occured immediately afterwards on the train and valid set ONLY
-        train_data = exclude_immediate_events(
-            train_data, date_cols=["target_ED_visit_date"]
-        )
+        # Remove sessions where event occured immediately afterwards on the train set ONLY
+        train_data = exclude_immediate_events(train_data, date_cols=["target_ED_date"])
 
         # IMPORTANT: always make sure train data is done first for one-hot encoding, clipping, imputing, scaling
         train_data = self.transform_data(train_data, data_name="training")
@@ -138,7 +128,7 @@ class PrepACUData(PrepData):
         kf = StratifiedGroupKFold(n_splits=n_folds, shuffle=True, random_state=42)
         kf_splits = kf.split(
             X=train_data,
-            y=train_data["target_ED_visit"],  # placeholder
+            y=train_data["target_ED_30d"],  # placeholder
             groups=train_data["mrn"],
         )
         cv_folds = np.zeros(len(train_data))
@@ -166,8 +156,6 @@ class PrepACUData(PrepData):
         )
 
         # clean up Y
-        for col in ["target_CEDIS_complaint", "target_CTAS_score"]:
-            metainfo[col] = Y.pop(col)
         Y.columns = Y.columns.str.replace("target_", "")
 
         return X, Y, metainfo
