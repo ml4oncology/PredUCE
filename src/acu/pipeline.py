@@ -2,10 +2,10 @@
 Module for final data preparation pipelines
 """
 
+from warnings import simplefilter
+
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedGroupKFold
-
 from ml_common.engineer import (
     collapse_rare_categories,
     get_change_since_prev_session,
@@ -19,9 +19,9 @@ from ml_common.filter import (
 )
 from ml_common.prep import PrepData, Splitter, fill_missing_data_heuristically
 from ml_common.util import get_excluded_numbers
-from ..filter import exclude_immediate_events
+from sklearn.model_selection import StratifiedGroupKFold
 
-from warnings import simplefilter
+from ..filter import exclude_immediate_events
 
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
