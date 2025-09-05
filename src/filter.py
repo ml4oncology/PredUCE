@@ -2,14 +2,12 @@
 Module to filter features and samples
 """
 
-from collections.abc import Sequence
 import logging
+from collections.abc import Sequence
+from warnings import simplefilter
 
 import pandas as pd
-
-from ml_common.util import get_excluded_numbers
-
-from warnings import simplefilter
+from make_clinical_dataset.epr.util import get_excluded_numbers
 
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 

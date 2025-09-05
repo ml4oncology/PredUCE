@@ -6,19 +6,23 @@ from warnings import simplefilter
 
 import numpy as np
 import pandas as pd
-from ml_common.engineer import (
+from make_clinical_dataset.epr.engineer import (
     collapse_rare_categories,
     get_change_since_prev_session,
     get_missingness_features,
 )
-from ml_common.filter import (
+from make_clinical_dataset.epr.filter import (
     drop_highly_missing_features,
     drop_samples_outside_study_date,
     drop_unused_drug_features,
     keep_only_one_per_week,
 )
-from ml_common.prep import PrepData, Splitter, fill_missing_data_heuristically
-from ml_common.util import get_excluded_numbers
+from make_clinical_dataset.epr.prep import (
+    PrepData,
+    Splitter,
+    fill_missing_data_heuristically,
+)
+from make_clinical_dataset.epr.util import get_excluded_numbers
 from sklearn.model_selection import StratifiedGroupKFold
 
 from ..filter import exclude_immediate_events
@@ -42,6 +46,11 @@ class PrepACUData(PrepData):
             drop_rows_missing_thresh: the percentage of missingness in which a row would be dropped.
                 If set to -1, no rows will be dropped
         """
+        # convert cancer site and morphology features to binary variables
+        # by taking the most recent diagnosis prior to assessment date, represented as 2
+        cols = df.columns[df.columns.str.contains("cancer_site_|morphology_")]
+        df[cols] = df[cols] == 2
+
         # keep only the first treatment session of a given week
         df = keep_only_one_per_week(df)
 

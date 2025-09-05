@@ -6,8 +6,8 @@ from collections import defaultdict
 from typing import Optional, Sequence
 
 import pandas as pd
-
-from ml_common.constants import CANCER_CODE_MAP, DRUG_COLS, LAB_COLS, UNIT_MAP
+from make_clinical_dataset.shared.constants import EPR_DRUG_COLS, LAB_COLS, UNIT_MAP
+from ml_common.constants import CANCER_CODE_MAP
 
 
 def pre_and_post_treatment_missingness_summary(
@@ -124,7 +124,7 @@ def feature_summary(
     summary["Missingness (%)"] = (count / N * 100).round(1)
     summary = summary.drop(columns=["count", "mean", "std"])
     # special case for drug features (percentage of dose given)
-    for col in DRUG_COLS:
+    for col in EPR_DRUG_COLS:
         if col not in X_train.columns:
             continue
         mask = (

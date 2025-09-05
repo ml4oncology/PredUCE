@@ -2,14 +2,13 @@
 Module to train models with Autogluon
 """
 
+from datetime import datetime
 from typing import Optional
 
-from autogluon.core.metrics import make_scorer
-from autogluon.tabular import TabularPredictor
-from datetime import datetime
 import numpy as np
 import pandas as pd
-
+from autogluon.core.metrics import make_scorer
+from autogluon.tabular import TabularPredictor
 from ml_common.eval import auc_scores
 
 
