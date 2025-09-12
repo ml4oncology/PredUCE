@@ -25,8 +25,6 @@ from make_clinical_dataset.epr.prep import (
 from make_clinical_dataset.epr.util import get_excluded_numbers
 from sklearn.model_selection import StratifiedGroupKFold
 
-from ..filter import exclude_immediate_events
-
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
 
@@ -124,10 +122,7 @@ class PrepACUData(PrepData):
         train_data, test_data = splitter.temporal_split(
             df, split_date="2018-02-01", visit_col="assessment_date"
         )
-
-        # Remove sessions where event occured immediately afterwards on the train set ONLY
-        train_data = exclude_immediate_events(train_data, date_cols=["target_ED_date"])
-
+        
         # IMPORTANT: always make sure train data is done first for one-hot encoding, clipping, imputing, scaling
         train_data = self.transform_data(train_data, data_name="training")
         test_data = self.transform_data(test_data, data_name="testing")

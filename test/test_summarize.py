@@ -1,7 +1,6 @@
 import pandas as pd
 import pytest
-
-from preduce.summarize import get_patient_characteristics
+from preduce.shared.summarize import get_patient_characteristics
 
 
 @pytest.fixture

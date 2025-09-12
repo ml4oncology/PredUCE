@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "preduce"
 description = "Predict undesirable cancer events"
-version = "0.1.1"
+version = "2.0.0"
 authors = [
     { name = "Kevin He", email = "Kevin.He@uhn.ca" },
     { name = "Noke Yuan", email = "Baijiang.Yuan@uhn.ca" }
@@ -21,5 +21,7 @@ dev = [
     "pytest-xdist",
 ]
 
-[tool.setuptools]
-package-dir = {"preduce" = "src"}
+[tool.setuptools.package-dir]
+"preduce.acu" = "acu/src"
+"preduce.symp" = "symp/src"
+"preduce.shared" = "shared"

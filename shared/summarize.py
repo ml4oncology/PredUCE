@@ -2,7 +2,6 @@
 Module to create summary tables
 """
 
-from collections import defaultdict
 from typing import Optional, Sequence
 
 import pandas as pd

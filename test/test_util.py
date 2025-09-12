@@ -1,8 +1,6 @@
-import pytest
-
 import numpy as np
-
-from preduce.util import compute_threshold
+import pytest
+from preduce.shared.util import compute_threshold
 
 
 @pytest.mark.parametrize(
