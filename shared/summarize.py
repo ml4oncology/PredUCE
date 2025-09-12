@@ -248,15 +248,15 @@ def get_patient_characteristics(
 
     # height
     height = df["height"]
-    median = height.median().round(1)
+    median = height.median()
     q25, q75 = height.quantile([0.25, 0.75]).round(1)
-    pc["Height (cm), Median (IQR)"] = f"{median} ({q25}-{q75})"
+    pc["Height (cm), Median (IQR)"] = f"{median:.1f} ({q25}-{q75})"
 
     # weight
     weight = df["weight"]
-    median = weight.median().round(1)
+    median = weight.median()
     q25, q75 = weight.quantile([0.25, 0.75]).round(1)
-    pc["Weight (kg), Median (IQR)"] = f"{median} ({q25}-{q75})"
+    pc["Weight (kg), Median (IQR)"] = f"{median:.1f} ({q25}-{q75})"
 
     # sex
     num_females = df["female"].sum()
