@@ -3,14 +3,10 @@ Module for final data preparation pipelines
 """
 
 from collections.abc import Sequence
+from warnings import simplefilter
 
 import pandas as pd
-
-from ..filter import indicate_immediate_events
-from ml_common.constants import SYMP_COLS
-from ml_common.prep import PrepData, Splitter
-
-from warnings import simplefilter
+from make_clinical_dataset.epr.prep import PrepData, Splitter
 
 simplefilter(action="ignore", category=pd.errors.PerformanceWarning)
 
@@ -24,13 +20,6 @@ class PrepSympData(PrepData):
         train_data, valid_data, test_data = splitter.split_data(
             df, split_date=split_date
         )
-
-        # Remove sessions where event occured immediately afterwards on the train and valid set ONLY
-        date_cols = [f"target_{symp}_survey_date" for symp in SYMP_COLS]
-        for pt in target_pt_increases:
-            targ_cols = [f"target_{symp}_{pt}pt_change" for symp in SYMP_COLS]
-            train_data = indicate_immediate_events(train_data, targ_cols, date_cols)
-            valid_data = indicate_immediate_events(valid_data, targ_cols, date_cols)
 
         # IMPORTANT: always make sure train data is done first for one-hot encoding, clipping, imputing, scaling
         train_data = self.transform_data(train_data, data_name="training")
