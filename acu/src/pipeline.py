@@ -39,7 +39,7 @@ def prepare(
     # split into input features, output targets, and meta info
     meta_cols = [
         'mrn', 'assessment_date', 'split', 'cv_folds', 
-        'primary_site_desc', 'drug_name', 'postal_code', 'target_ED_note', 
+        'primary_site_desc', 'morphology_desc', 'drug_name', 'postal_code', 'target_ED_note', 
         'target_hemoglobin_min', 'target_platelet_min', 'target_neutrophil_min',
         'target_creatinine_max', 'target_alanine_aminotransferase_max',
         'target_aspartate_aminotransferase_max', 'target_total_bilirubin_max',
@@ -96,6 +96,6 @@ def train_and_eval(
     val_score = pd.concat(val_score, axis=1)
 
     # Get model performance in test set
-    test_score = evaluate(models, feats[test], target[test], **eval_kwargs)
+    test_score = evaluate(models, feats[test], targs[test], **eval_kwargs)
 
     return {"models": models, "val": val_score, "test": test_score}

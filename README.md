@@ -14,3 +14,23 @@ pip install -e ".[dev]"
 pre-commit install
 nbstripout --install --keep-output
 ```
+
+# Instructions
+```bash
+python <project folder>/scripts/run.py
+```
+
+# Project Organization
+```
+├── acu                <- Acute care use
+│   ├── notebooks      <- Jupyter notebooks
+│   ├── scripts        <- Python scripts
+│   └── src            <- Python package where the main functionality goes
+├── symp               <- Symptom deterioration
+│   ├── notebooks
+│   ├── scripts
+│   └── src
+├── shared             <- Shared modules between different projects
+├── pyproject.toml     <- Build configuration
+├── .env               <- Environment variables (i.e. personal keys)
+```
