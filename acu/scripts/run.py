@@ -14,7 +14,7 @@ SAVE_PATH = os.getenv("SAVE_PATH")
 def main():
     df = pd.read_parquet(DATA_PATH)
     out = prepare(df)
-    res = train_and_eval(out, targets=['target_ED_30d'], save_path=SAVE_PATH, load_model=False)
+    res = train_and_eval(out, targets=['target_ED_30d'], save_path=SAVE_PATH, load_model=False, train_kwargs=dict(time_limit=10e6))
     res['val'].to_csv(f'{SAVE_PATH}/val_score.csv', index=False)
     res['test'].to_csv(f'{SAVE_PATH}/test_score.csv', index=False)
 
