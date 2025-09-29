@@ -1,0 +1,1 @@
+Please ask Noke Yuan (Baijiang.Yuan@uhn.ca) about the symptom predictor codebase
