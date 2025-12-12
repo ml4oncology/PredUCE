@@ -7,17 +7,19 @@ from preduce.acu.pipeline import prepare, train_and_eval
 
 load_dotenv()
 
-DATE = '2025-03-29'
-DATA_PATH = f'{ROOT_DIR}/data/final/data_{DATE}/processed/treatment_centered_data.parquet'
+DATE = "2025-03-29"
+DATA_PATH = f"{ROOT_DIR}/data/final/data_{DATE}/processed/clinic_centered_data.parquet"
 SAVE_PATH = os.getenv("SAVE_PATH")
+
 
 def main():
     df = pd.read_parquet(DATA_PATH)
     out = prepare(df)
-    target = 'target_ED_90d'
-    res = train_and_eval(out, targets=[target], save_path=SAVE_PATH, load_model=False, train_kwargs=dict(time_limit=10e6))
-    res['val'].to_csv(f'{SAVE_PATH}/{target}/val_score.csv', index=False)
-    res['test'].to_csv(f'{SAVE_PATH}/{target}/test_score.csv', index=False)
+    targ_cols = ["target_ED_30d", "target_ED_60d", "target_ED_90d"]
+    res = train_and_eval(out, targets=targ_cols, save_path=SAVE_PATH, load_model=False)
+    res["val"].to_csv("val_score.csv", index=False)
+    res["test"].to_csv("test_score.csv", index=False)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

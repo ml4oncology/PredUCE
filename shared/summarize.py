@@ -112,24 +112,26 @@ def feature_summary(feats: pd.DataFrame) -> pd.DataFrame:
 
     # assign the groupings for each feature
     feature_groupings_by_keyword = {
-        "Acute care use": "ED",
-        "Cancer": "cancer_type",
-        "Demographic": "height|weight|body_surface_area|female|age",
+        "Acute care use": "ED|hospitalization",
+        "Demographic": "height|weight|body_surface_area|sex|age",
         "Laboratory": "|".join(LAB_COLS),
         "Treatment": "regimen|intent|treatment|dose|drug|therapy|cycle",
         "Symptoms": "|".join(SYMP_COLS),
+        "Cancer": "primary_site",
     }
     features = summary.index
     for group, keyword in feature_groupings_by_keyword.items():
         summary.loc[features.str.contains(keyword), "Group"] = group
+    summary["Group"] = summary["Group"].fillna("Treatment")
     summary = summary[["Group", "Mean (SD)", "Missingness (%)"]]
 
     # clean name and insert units
     unit_map = {
         feat: f" ({unit})" for unit, feats in UNIT_MAP.items() for feat in feats
     }
-    unit_map["female"] = " (yes/no)"
-    summary.index = [f"{clean_feature_name(feat)}{unit_map.get(feat, '')}" for feat in summary.index]
+    summary.index = [
+        f"{clean_feature_name(feat)}{unit_map.get(feat, '')}" for feat in summary.index
+    ]
     summary = summary.reset_index(names="Features")
     summary = summary.sort_values(by=["Group", "Features"])
     return summary
@@ -139,7 +141,13 @@ def clean_feature_name(name: str) -> str:
     if name == "ecog":
         return "Eastern Cooperative Oncology Group (ECOG) Performance Status"
     name = name.replace("_", " ").title()
-    name = name.replace(" Ed ", " ED ").replace(" Of ", " of ").replace(" Egfr ", " eGFR ")
+    name = (
+        name.replace(" Ed ", " ED ")
+        .replace(" Of ", " of ")
+        .replace(" Egfr ", " eGFR ")
+        .replace(" Ctas ", " CTAS ")
+        .replace(" Desc ", " ")
+    )
     return name
 
 
@@ -166,6 +174,11 @@ def cohort_summary(
     q25, q75 = num_sessions.quantile([0.25, 0.75]).astype(int)
     pc["Number of Treatments, Median (IQR)"] = f"{median} ({q25}-{q75})"
 
+    # sex
+    for sex in df["sex"].dropna().unique():
+        num_sexes = sum(df["sex"] == sex)
+        pc[f"Sex {sex.title()}, No. (%)"] = f"{num_sexes} ({num_sexes/N*100:.1f})"
+
     # age
     age = df["age"]
     median = int(age.median())
@@ -184,10 +197,6 @@ def cohort_summary(
     q25, q75 = weight.quantile([0.25, 0.75]).round(1)
     pc["Weight (kg), Median (IQR)"] = f"{median:.1f} ({q25}-{q75})"
 
-    # sex
-    # num_females = df["female"].sum()
-    # pc["Female, No. (%)"] = f"{num_females} ({num_females/N*100:.1f})"
-
     # regimens
     for regimen in top_regimens:
         num_regimens = sum(df["regimen"] == regimen)
@@ -196,7 +205,9 @@ def cohort_summary(
     # cancers
     for cancer in top_cancers:
         num_cancers = sum(df["cancer_type"] == cancer)
-        pc[f"Cancer Site {cancer}, No. (%)"] = (f"{num_cancers} ({num_cancers/N*100:.1f})")
+        pc[f"Cancer Site {cancer}, No. (%)"] = (
+            f"{num_cancers} ({num_cancers/N*100:.1f})"
+        )
 
     # targets
     for target in targets:
