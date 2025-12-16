@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 from autogluon.tabular import TabularPredictor
 from make_clinical_dataset.epr.prep import Splitter
-from ml_common.autogluon import evaluate, train_models
+from ml_common.autogluon import evaluate, get_val_pred, train_models
+from ml_common.eval import auc_scores
 from sklearn.model_selection import StratifiedGroupKFold
 
 
@@ -62,8 +63,6 @@ def prepare(
         "regimen",
         "prev_hospitalization_note",
         "prev_ED_visit_note",
-        "prev_hospitalization_date",
-        "prev_ED_visit_date",
     ]
     targ_cols = [
         col for col in df.columns if col.startswith("target") and col not in meta_cols
@@ -109,12 +108,32 @@ def train_and_eval(
         )
 
     # Get model performance in validation set
-    val_score = {}
-    for target in models:
-        val_score[target] = models[target].leaderboard()[["model", "score_val"]]
-    val_score = pd.concat(val_score, axis=1)
+    val_score = evaluate_val(models, targs)
 
     # Get model performance in test set
     test_score = evaluate(models, feats[test], targs[test], **eval_kwargs)
 
     return {"models": models, "val": val_score, "test": test_score}
+
+
+def evaluate_val(
+    models: dict[str, TabularPredictor], targs: pd.DataFrame
+) -> pd.DataFrame:
+    """Evaluate model performance in validation set for all targets and all model types
+
+    Handles validation set predictions differently depending on whether cross-validation was used
+    during training.
+
+    TODO: move to ml_common.autogluon?
+    """
+    val_score = {}
+    for target, model in models.items():
+        scores = []
+        for model_name in model.model_names():
+            val_preds = get_val_pred(model, model_name)
+            val_labels = targs.loc[val_preds.index, target]
+            scores.append({"model": model_name, **auc_scores(val_labels, val_preds)})
+        val_score[target] = pd.DataFrame(scores)
+    val_score = pd.concat(val_score, keys=val_score, axis=1)
+    val_score = val_score.sort_values(by=(target, "AUPRC"), ascending=False)
+    return val_score
