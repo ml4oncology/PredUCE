@@ -204,7 +204,7 @@ def cohort_summary(
 
     # cancers
     for cancer in top_cancers:
-        num_cancers = sum(df["cancer_type"] == cancer)
+        num_cancers = sum(df["primary_site_desc"] == cancer)
         pc[f"Cancer Site {cancer}, No. (%)"] = (
             f"{num_cancers} ({num_cancers/N*100:.1f})"
         )

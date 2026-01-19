@@ -55,6 +55,7 @@ def prepare(
         "cv_folds",
         "cancer_type",
         "cancer_desc",
+        "morphology_desc",
         "primary_site_code",
         "preferred_language",
         "religion",
