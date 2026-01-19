@@ -1,11 +1,13 @@
 """
 Module for preparation and training and evaluation pipelines
 """
+
 import numpy as np
 import pandas as pd
 from autogluon.tabular import TabularPredictor
 from make_clinical_dataset.epr.prep import Splitter
-from ml_common.autogluon import evaluate, train_models
+from ml_common.autogluon import evaluate, get_val_pred, train_models
+from ml_common.eval import auc_scores
 from sklearn.model_selection import StratifiedGroupKFold
 
 
@@ -13,15 +15,24 @@ def prepare(
     df: pd.DataFrame,
     n_folds: int = 5,
     split_date: str = "2022-01-01",
-    target = "target_ED_30d",
+    target="target_ED_30d",
 ) -> dict[str, pd.DataFrame]:
     """Split the data into input features, output targets, and meta info
 
     Assign cross-validation folds and data splits to each data sample, stored in meta info.
     """
+    # clip special outliers
+    col = "prev_hospitalization_length_of_stay"
+    df[col] = df[col].clip(lower=1)
+
     # split the data - create development (EPR) and test (EPIC) set
     splitter = Splitter()
-    dev_data, test_data = splitter.temporal_split(df, split_date=split_date, visit_col="assessment_date")
+    dev_data, test_data = splitter.temporal_split(
+        df,
+        split_date=split_date,
+        visit_col="assessment_date",
+        exclude_after_split=False,
+    )
 
     # split training data into folds for cross validation
     # NOTE: feel free to add more columns for different fold splits by looping through different random states
@@ -33,33 +44,41 @@ def prepare(
     dev_data["cv_folds"] = cv_folds
 
     # create a split column and combine the data for convenience
-    dev_data['split'], test_data['split'] = "Train", "Test"
+    dev_data["split"], test_data["split"] = "Train", "Test"
     data = pd.concat([dev_data, test_data])
 
     # split into input features, output targets, and meta info
     meta_cols = [
-        'mrn', 'assessment_date', 'split', 'cv_folds', 
-        'primary_site_desc', 'morphology_desc', 'drug_name', 'postal_code', 'target_ED_note', 
-        'target_hemoglobin_min', 'target_platelet_min', 'target_neutrophil_min',
-        'target_creatinine_max', 'target_alanine_aminotransferase_max',
-        'target_aspartate_aminotransferase_max', 'target_total_bilirubin_max',
+        "mrn",
+        "assessment_date",
+        "split",
+        "cv_folds",
+        "cancer_type",
+        "cancer_desc",
+        "morphology_desc",
+        "primary_site_code",
+        "preferred_language",
+        "religion",
+        "postalcode",
+        "department",
+        "regimen",
+        "prev_hospitalization_note",
+        "prev_ED_visit_note",
     ]
-    targ_cols = [col for col in df.columns if col.startswith('target') and col not in meta_cols]
-    feat_cols = data.columns.drop(meta_cols+targ_cols).tolist()
-    return {
-        'feats': data[feat_cols], 
-        'targs': data[targ_cols], 
-        'meta': data[meta_cols]
-    }
+    targ_cols = [
+        col for col in df.columns if col.startswith("target") and col not in meta_cols
+    ]
+    feat_cols = data.columns.drop(meta_cols + targ_cols).tolist()
+    return {"feats": data[feat_cols], "targs": data[targ_cols], "meta": data[meta_cols]}
 
 
 def train_and_eval(
-    out: dict[str, pd.DataFrame], 
-    targets: list[str], 
-    save_path: str, 
+    out: dict[str, pd.DataFrame],
+    targets: list[str],
+    save_path: str,
     load_model: bool = False,
     train_kwargs: dict | None = None,
-    eval_kwargs: dict | None = None
+    eval_kwargs: dict | None = None,
 ) -> dict[str]:
     """
     Args:
@@ -71,31 +90,51 @@ def train_and_eval(
     if eval_kwargs is None:
         eval_kwargs = {}
 
-    feats, targs, meta = out['feats'], out['targs'], out['meta']
+    feats, targs, meta = out["feats"], out["targs"], out["meta"]
     dev, test = meta["split"] == "Train", meta["split"] == "Test"
-    
+
     if load_model:
         # Load the models
         models = {}
         for target in targets:
-            models[target] = TabularPredictor.load(f'{save_path}/{target}', verbosity=0)
+            models[target] = TabularPredictor.load(f"{save_path}/{target}", verbosity=0)
     else:
         # Train the models
         models = train_models(
-            feats[dev], 
+            feats[dev],
             targs[dev][targets],
-            meta[dev], 
+            meta[dev],
             save_path=save_path,
-            **train_kwargs
+            **train_kwargs,
         )
 
     # Get model performance in validation set
-    val_score = {}
-    for target in models:
-        val_score[target] = models[target].leaderboard()[['model', 'score_val']]
-    val_score = pd.concat(val_score, axis=1)
+    val_score = evaluate_val(models, targs)
 
     # Get model performance in test set
     test_score = evaluate(models, feats[test], targs[test], **eval_kwargs)
 
     return {"models": models, "val": val_score, "test": test_score}
+
+
+def evaluate_val(
+    models: dict[str, TabularPredictor], targs: pd.DataFrame
+) -> pd.DataFrame:
+    """Evaluate model performance in validation set for all targets and all model types
+
+    Handles validation set predictions differently depending on whether cross-validation was used
+    during training.
+
+    TODO: move to ml_common.autogluon?
+    """
+    val_score = {}
+    for target, model in models.items():
+        scores = []
+        for model_name in model.model_names():
+            val_preds = get_val_pred(model, model_name)
+            val_labels = targs.loc[val_preds.index, target]
+            scores.append({"model": model_name, **auc_scores(val_labels, val_preds)})
+        val_score[target] = pd.DataFrame(scores)
+    val_score = pd.concat(val_score, keys=val_score, axis=1)
+    val_score = val_score.sort_values(by=(target, "AUPRC"), ascending=False)
+    return val_score
