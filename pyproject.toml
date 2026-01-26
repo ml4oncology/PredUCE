@@ -23,5 +23,6 @@ dev = [
 
 [tool.setuptools.package-dir]
 "preduce.acu" = "acu/src"
+"preduce.emerg" = "emerg/src"
 "preduce.symp" = "symp/src"
 "preduce.shared" = "shared"
