@@ -78,9 +78,7 @@ class Splitter:
         train_data, test_data = self.temporal_split(df, split_date=split_date, **kwargs)
 
         # create validation set from train data (80-20 split)
-        train_data, valid_data = self.random_split(
-            train_data, test_size=0.2, random_state=self.random_state
-        )
+        train_data, valid_data = self.random_split(train_data, test_size=0.2)
 
         return train_data, valid_data, test_data
 
@@ -126,26 +124,24 @@ class Preparer:
 
     def __init__(
         self,
-        variance_threshold: float = 0.01,
-        correlation_threshold: float = 0.95,
-        clip_percentile: tuple[float, float] = (0.01, 0.99),
+        var_thresh: float = 0.01,
+        clip_percentile: tuple[float, float] = (0.001, 0.999),
         clip_cols: list[str] | None = None,
         norm_cols: list[str] | None = None,
         exclude_cols: list[str] | None = None,
     ):
         # Config
-        self.variance_threshold = variance_threshold
-        self.correlation_threshold = correlation_threshold
+        self.var_thresh = var_thresh
         self.clip_percentile = clip_percentile
         self.clip_cols = clip_cols if clip_cols is not None else DEFAULT_CLIP_COLS
         self.norm_cols = norm_cols if norm_cols is not None else DEFAULT_NORM_COLS
-        self.exclude_cols = set(exclude_cols) if exclude_cols is not None else set()
+        self.exclude_cols = exclude_cols if exclude_cols is not None else []
 
         # Fitted state
-        self._low_variance_cols: list[str] = []
+        self._low_var_cols: list[str] = []
         self._high_corr_cols: list[str] = []
         self._clip_bounds: dict[str, tuple[float, float]] = {}
-        self._norm_params: dict[str, tuple[float, float]] = {}  # (mean, std)
+        self._norm_params: dict[str, tuple[float, float]] = {}
         self._is_fitted: bool = False
 
     def fit(self, df: pl.DataFrame) -> "Preparer":
@@ -158,13 +154,9 @@ class Preparer:
         ]
 
         # 1. Identify low-variance columns
-        self._low_variance_cols = self._find_low_variance_cols(df, numeric_cols)
-        remaining_cols = [c for c in numeric_cols if c not in self._low_variance_cols]
+        self._low_var_cols = self._find_low_var_cols(df, numeric_cols)
 
-        # 2. Identify highly-correlated columns
-        self._high_corr_cols = self._find_high_corr_cols(df, remaining_cols)
-
-        # 3. Compute clip bounds for specified columns
+        # 2. Compute clip bounds for specified columns
         clip_cols = [c for c in self.clip_cols if c in df.columns]
         for col in clip_cols:
             lower = df[col].quantile(self.clip_percentile[0])
@@ -172,7 +164,7 @@ class Preparer:
             if lower is not None and upper is not None:
                 self._clip_bounds[col] = (lower, upper)
 
-        # 4. Compute normalization params for specified columns
+        # 3. Compute normalization params for specified columns
         norm_cols = [c for c in self.norm_cols if c in df.columns]
         for col in norm_cols:
             mean = df[col].mean()
@@ -182,8 +174,7 @@ class Preparer:
 
         self._is_fitted = True
         logger.info(
-            f"Preparer fitted: dropping {len(self._low_variance_cols)} low-variance cols, "
-            f"{len(self._high_corr_cols)} high-corr cols, "
+            f"Preparer fitted: dropping {len(self._low_var_cols)} low-variance cols, "
             f"clipping {len(self._clip_bounds)} cols, normalizing {len(self._norm_params)} cols"
         )
         return self
@@ -194,14 +185,10 @@ class Preparer:
             raise RuntimeError("Preparer must be fitted before transform")
 
         # 1. Drop low-variance columns
-        cols_to_drop = [c for c in self._low_variance_cols if c in df.columns]
+        cols_to_drop = [c for c in self._low_var_cols if c in df.columns]
         df = df.drop(cols_to_drop)
 
-        # 2. Drop highly-correlated columns
-        cols_to_drop = [c for c in self._high_corr_cols if c in df.columns]
-        df = df.drop(cols_to_drop)
-
-        # 3. Clip outliers
+        # 2. Clip outliers
         clip_exprs = []
         for col, (lower, upper) in self._clip_bounds.items():
             if col in df.columns:
@@ -209,7 +196,7 @@ class Preparer:
         if clip_exprs:
             df = df.with_columns(clip_exprs)
 
-        # 4. Normalize
+        # 3. Normalize
         norm_exprs = []
         for col, (mean, std) in self._norm_params.items():
             if col in df.columns:
@@ -223,41 +210,14 @@ class Preparer:
         """Fit and transform in one step."""
         return self.fit(df).transform(df)
 
-    def _find_low_variance_cols(self, df: pl.DataFrame, cols: list[str]) -> list[str]:
+    def _find_low_var_cols(self, df: pl.DataFrame, cols: list[str]) -> list[str]:
         """Find columns with variance below threshold."""
         low_var = []
         for col in cols:
             var = df[col].var()
-            if var is not None and var < self.variance_threshold:
+            if var is not None and var < self.var_thresh:
                 low_var.append(col)
         return low_var
-
-    def _find_high_corr_cols(self, df: pl.DataFrame, cols: list[str]) -> list[str]:
-        """Find columns to drop due to high correlation.
-
-        For each pair with correlation > threshold, drop the second column.
-        """
-        if len(cols) < 2:
-            return []
-
-        # Compute correlation matrix using numpy for efficiency
-        data = df.select(cols).to_numpy()
-        # Handle NaN values for correlation computation
-        corr_matrix = np.corrcoef(data, rowvar=False)
-
-        to_drop = set()
-        n = len(cols)
-        for i in range(n):
-            if cols[i] in to_drop:
-                continue
-            for j in range(i + 1, n):
-                if cols[j] in to_drop:
-                    continue
-                corr = corr_matrix[i, j]
-                if not np.isnan(corr) and abs(corr) > self.correlation_threshold:
-                    to_drop.add(cols[j])
-
-        return list(to_drop)
 
 
 ###############################################################################
