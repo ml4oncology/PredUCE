@@ -115,10 +115,149 @@ class Splitter:
 # Transformation
 ###############################################################################
 class Preparer:
-    """Prepare the data for model training"""
+    """Stateful preprocessor: fit on train, transform all splits.
 
-    def __init__(self):
-        pass
+    Operations (in order):
+    1. Remove low-variance columns
+    2. Remove highly-correlated columns
+    3. Clip outliers (percentile-based)
+    4. Normalize (z-score)
+    """
+
+    def __init__(
+        self,
+        variance_threshold: float = 0.01,
+        correlation_threshold: float = 0.95,
+        clip_percentile: tuple[float, float] = (0.01, 0.99),
+        clip_cols: list[str] | None = None,
+        norm_cols: list[str] | None = None,
+        exclude_cols: list[str] | None = None,
+    ):
+        # Config
+        self.variance_threshold = variance_threshold
+        self.correlation_threshold = correlation_threshold
+        self.clip_percentile = clip_percentile
+        self.clip_cols = clip_cols if clip_cols is not None else DEFAULT_CLIP_COLS
+        self.norm_cols = norm_cols if norm_cols is not None else DEFAULT_NORM_COLS
+        self.exclude_cols = set(exclude_cols) if exclude_cols is not None else set()
+
+        # Fitted state
+        self._low_variance_cols: list[str] = []
+        self._high_corr_cols: list[str] = []
+        self._clip_bounds: dict[str, tuple[float, float]] = {}
+        self._norm_params: dict[str, tuple[float, float]] = {}  # (mean, std)
+        self._is_fitted: bool = False
+
+    def fit(self, df: pl.DataFrame) -> "Preparer":
+        """Learn transformation parameters from training data."""
+        numeric_cols = [
+            col
+            for col in df.columns
+            if df[col].dtype in [pl.Float64, pl.Float32, pl.Int64, pl.Int32]
+            and col not in self.exclude_cols
+        ]
+
+        # 1. Identify low-variance columns
+        self._low_variance_cols = self._find_low_variance_cols(df, numeric_cols)
+        remaining_cols = [c for c in numeric_cols if c not in self._low_variance_cols]
+
+        # 2. Identify highly-correlated columns
+        self._high_corr_cols = self._find_high_corr_cols(df, remaining_cols)
+
+        # 3. Compute clip bounds for specified columns
+        clip_cols = [c for c in self.clip_cols if c in df.columns]
+        for col in clip_cols:
+            lower = df[col].quantile(self.clip_percentile[0])
+            upper = df[col].quantile(self.clip_percentile[1])
+            if lower is not None and upper is not None:
+                self._clip_bounds[col] = (lower, upper)
+
+        # 4. Compute normalization params for specified columns
+        norm_cols = [c for c in self.norm_cols if c in df.columns]
+        for col in norm_cols:
+            mean = df[col].mean()
+            std = df[col].std()
+            if mean is not None and std is not None and std > 0:
+                self._norm_params[col] = (mean, std)
+
+        self._is_fitted = True
+        logger.info(
+            f"Preparer fitted: dropping {len(self._low_variance_cols)} low-variance cols, "
+            f"{len(self._high_corr_cols)} high-corr cols, "
+            f"clipping {len(self._clip_bounds)} cols, normalizing {len(self._norm_params)} cols"
+        )
+        return self
+
+    def transform(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Apply learned transformations to data."""
+        if not self._is_fitted:
+            raise RuntimeError("Preparer must be fitted before transform")
+
+        # 1. Drop low-variance columns
+        cols_to_drop = [c for c in self._low_variance_cols if c in df.columns]
+        df = df.drop(cols_to_drop)
+
+        # 2. Drop highly-correlated columns
+        cols_to_drop = [c for c in self._high_corr_cols if c in df.columns]
+        df = df.drop(cols_to_drop)
+
+        # 3. Clip outliers
+        clip_exprs = []
+        for col, (lower, upper) in self._clip_bounds.items():
+            if col in df.columns:
+                clip_exprs.append(pl.col(col).clip(lower, upper))
+        if clip_exprs:
+            df = df.with_columns(clip_exprs)
+
+        # 4. Normalize
+        norm_exprs = []
+        for col, (mean, std) in self._norm_params.items():
+            if col in df.columns:
+                norm_exprs.append(((pl.col(col) - mean) / std).alias(col))
+        if norm_exprs:
+            df = df.with_columns(norm_exprs)
+
+        return df
+
+    def fit_transform(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Fit and transform in one step."""
+        return self.fit(df).transform(df)
+
+    def _find_low_variance_cols(self, df: pl.DataFrame, cols: list[str]) -> list[str]:
+        """Find columns with variance below threshold."""
+        low_var = []
+        for col in cols:
+            var = df[col].var()
+            if var is not None and var < self.variance_threshold:
+                low_var.append(col)
+        return low_var
+
+    def _find_high_corr_cols(self, df: pl.DataFrame, cols: list[str]) -> list[str]:
+        """Find columns to drop due to high correlation.
+
+        For each pair with correlation > threshold, drop the second column.
+        """
+        if len(cols) < 2:
+            return []
+
+        # Compute correlation matrix using numpy for efficiency
+        data = df.select(cols).to_numpy()
+        # Handle NaN values for correlation computation
+        corr_matrix = np.corrcoef(data, rowvar=False)
+
+        to_drop = set()
+        n = len(cols)
+        for i in range(n):
+            if cols[i] in to_drop:
+                continue
+            for j in range(i + 1, n):
+                if cols[j] in to_drop:
+                    continue
+                corr = corr_matrix[i, j]
+                if not np.isnan(corr) and abs(corr) > self.correlation_threshold:
+                    to_drop.add(cols[j])
+
+        return list(to_drop)
 
 
 ###############################################################################
@@ -219,3 +358,37 @@ def build_features(df: pl.DataFrame) -> pl.DataFrame:
     )
 
     return df
+
+
+def split_columns(
+    df: pl.DataFrame,
+    meta_cols: list[str],
+    targ_cols: list[str],
+    embed_cols: list[str],
+) -> dict[str, pl.DataFrame]:
+    """Split dataframe columns into logical groups.
+
+    Args:
+        df: Input dataframe
+        meta_cols: Columns for metadata (not used in model)
+        targ_cols: Columns for prediction targets
+        embed_cols: Columns for text embedding features
+
+    Returns:
+        Dictionary with keys: "X_tabular", "X_embedding", "y", "meta"
+    """
+    # Filter to columns that exist
+    meta_cols = [c for c in meta_cols if c in df.columns]
+    target_cols = [c for c in targ_cols if c in df.columns]
+    embedding_cols = [c for c in embed_cols if c in df.columns]
+
+    # Tabular features = everything else
+    exclude = set(meta_cols + target_cols + embedding_cols)
+    tabular_cols = [c for c in df.columns if c not in exclude]
+
+    return {
+        "X_tabular": df.select(tabular_cols),
+        "X_embedding": df.select(embedding_cols),
+        "y": df.select(target_cols),
+        "meta": df.select(meta_cols),
+    }

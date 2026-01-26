@@ -13,6 +13,28 @@ EMBEDDING_SECTIONS = [
     "acuity_assessment",
 ]
 
+# embedding columns
+EMBED_COLS = [f"{section}_text_id" for section in EMBEDDING_SECTIONS]
+
+# metadata columns
+META_COLS = [
+    "mrn",
+    "assessment_date",
+    "split",
+    "cancer_type",
+    "cancer_desc",
+    "morphology_desc",
+    "primary_site_code",
+    "preferred_language",
+    "religion",
+    "postalcode",
+    "department",
+    "regimen",
+    "prev_hospitalization_note",
+    "prev_ED_visit_note",
+    "prev_ED_visit_CTAS_score",
+]
+
 
 @dataclass
 class ModelConfig:
