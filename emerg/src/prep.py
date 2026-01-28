@@ -8,8 +8,9 @@ from make_clinical_dataset.shared.constants import (
     LAB_COLS,
     SYMP_COLS,
 )
-from preduce.emerg.config import EMBEDDING_SECTIONS
 from sklearn.model_selection import GroupShuffleSplit
+
+from preduce.emerg.config import EMBEDDING_SECTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -117,9 +118,8 @@ class Preparer:
 
     Operations (in order):
     1. Remove low-variance columns
-    2. Remove highly-correlated columns
-    3. Clip outliers (percentile-based)
-    4. Normalize (z-score)
+    2. Clip outliers (percentile-based)
+    3. Normalize (z-score)
     """
 
     def __init__(
@@ -260,7 +260,17 @@ def load_data(
     return df
 
 
-def build_features(df: pl.DataFrame) -> pl.DataFrame:
+def build_features(
+    df: pl.DataFrame, 
+    encode_cols: list[str] = None,
+    impute_cols: list[str] = None,
+    embed_cols: list[str] = None,
+) -> pl.DataFrame:
+    if encode_cols is None:
+        encode_cols = DEFAULT_ENCODE_COLS
+    if impute_cols is None:
+        impute_cols = DEFAULT_IMPUTE_COLS
+    
     # TODO: make it robust to missing columns
     # keep only the first treatment of a given week
     df = df.group_by_dynamic("assessment_date", every="7d", group_by="mrn").agg(
@@ -275,7 +285,11 @@ def build_features(df: pl.DataFrame) -> pl.DataFrame:
 
     # one-hot-encode categorical columns with low-cardinality
     # WARNING: assumes categories will remain constant over time
-    df = df.to_dummies(columns=DEFAULT_ENCODE_COLS)
+    df = df.to_dummies(columns=encode_cols)
+
+    # map high-cardinal categories to indices for learned embeddings
+    for col in DEFAULT_EMBED_COLS:
+        df = df.with_columns((pl.col(col).rank("dense") - 1).cast(pl.UInt32).alias(f"{col}_idx"))
 
     # clip columns hueristically before imputation
     df = df.with_columns(
@@ -296,7 +310,7 @@ def build_features(df: pl.DataFrame) -> pl.DataFrame:
 
     # impute columns via missing indicator approach (MIA)
     # use only the columns that exist in the data
-    cols = [col for col in DEFAULT_IMPUTE_COLS if col in df.columns]
+    cols = [col for col in impute_cols if col in df.columns]
     df = df.with_columns(
         [
             # create missingness indicators for select columns

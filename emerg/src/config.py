@@ -25,6 +25,7 @@ META_COLS = [
     "cancer_desc",
     "morphology_desc",
     "primary_site_code",
+    "primary_site_desc",
     "preferred_language",
     "religion",
     "postalcode",
