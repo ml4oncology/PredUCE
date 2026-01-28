@@ -8,9 +8,8 @@ from make_clinical_dataset.shared.constants import (
     LAB_COLS,
     SYMP_COLS,
 )
-from sklearn.model_selection import GroupShuffleSplit
-
 from preduce.emerg.config import EMBEDDING_SECTIONS
+from sklearn.model_selection import GroupShuffleSplit
 
 logger = logging.getLogger(__name__)
 
@@ -146,18 +145,13 @@ class Preparer:
 
     def fit(self, df: pl.DataFrame) -> "Preparer":
         """Learn transformation parameters from training data."""
-        numeric_cols = [
-            col
-            for col in df.columns
-            if df[col].dtype in [pl.Float64, pl.Float32, pl.Int64, pl.Int32]
-            and col not in self.exclude_cols
-        ]
-
         # 1. Identify low-variance columns
-        self._low_var_cols = self._find_low_var_cols(df, numeric_cols)
+        self._low_var_cols = self._find_low_var_cols(df)
 
         # 2. Compute clip bounds for specified columns
-        clip_cols = [c for c in self.clip_cols if c in df.columns]
+        clip_cols = [
+            c for c in self.clip_cols if c in df.columns and c not in self.exclude_cols
+        ]
         for col in clip_cols:
             lower = df[col].quantile(self.clip_percentile[0])
             upper = df[col].quantile(self.clip_percentile[1])
@@ -165,7 +159,9 @@ class Preparer:
                 self._clip_bounds[col] = (lower, upper)
 
         # 3. Compute normalization params for specified columns
-        norm_cols = [c for c in self.norm_cols if c in df.columns]
+        norm_cols = [
+            c for c in self.norm_cols if c in df.columns and c not in self.exclude_cols
+        ]
         for col in norm_cols:
             mean = df[col].mean()
             std = df[col].std()
@@ -185,7 +181,11 @@ class Preparer:
             raise RuntimeError("Preparer must be fitted before transform")
 
         # 1. Drop low-variance columns
-        cols_to_drop = [c for c in self._low_var_cols if c in df.columns]
+        cols_to_drop = [
+            c
+            for c in self._low_var_cols
+            if c in df.columns and c not in self.exclude_cols
+        ]
         df = df.drop(cols_to_drop)
 
         # 2. Clip outliers
@@ -210,10 +210,13 @@ class Preparer:
         """Fit and transform in one step."""
         return self.fit(df).transform(df)
 
-    def _find_low_var_cols(self, df: pl.DataFrame, cols: list[str]) -> list[str]:
-        """Find columns with variance below threshold."""
+    def _find_low_var_cols(self, df: pl.DataFrame) -> list[str]:
+        """Find numeric columns with variance below threshold."""
+        numeric_cols = df.select(pl.selectors.numeric()).columns
+        numeric_cols = [col for col in numeric_cols if col not in self.exclude_cols]
+
         low_var = []
-        for col in cols:
+        for col in numeric_cols:
             var = df[col].var()
             if var is not None and var < self.var_thresh:
                 low_var.append(col)
@@ -261,7 +264,7 @@ def load_data(
 
 
 def build_features(
-    df: pl.DataFrame, 
+    df: pl.DataFrame,
     encode_cols: list[str] = None,
     impute_cols: list[str] = None,
     embed_cols: list[str] = None,
@@ -270,7 +273,9 @@ def build_features(
         encode_cols = DEFAULT_ENCODE_COLS
     if impute_cols is None:
         impute_cols = DEFAULT_IMPUTE_COLS
-    
+    if embed_cols is None:
+        embed_cols = DEFAULT_EMBED_COLS
+
     # TODO: make it robust to missing columns
     # keep only the first treatment of a given week
     df = df.group_by_dynamic("assessment_date", every="7d", group_by="mrn").agg(
@@ -288,8 +293,10 @@ def build_features(
     df = df.to_dummies(columns=encode_cols)
 
     # map high-cardinal categories to indices for learned embeddings
-    for col in DEFAULT_EMBED_COLS:
-        df = df.with_columns((pl.col(col).rank("dense") - 1).cast(pl.UInt32).alias(f"{col}_idx"))
+    for col in embed_cols:
+        df = df.with_columns(
+            (pl.col(col).rank("dense") - 1).cast(pl.UInt32).alias(f"{col}_idx")
+        )
 
     # clip columns hueristically before imputation
     df = df.with_columns(
@@ -314,7 +321,10 @@ def build_features(
     df = df.with_columns(
         [
             # create missingness indicators for select columns
-            *[pl.col(col).is_null().alias(f"{col}_missing") for col in cols],
+            *[
+                pl.col(col).is_null().cast(pl.Int8).alias(f"{col}_missing")
+                for col in cols
+            ],
             # fill missing values with -1
             # NOTE: the model will learn from the appropriate indicator to ignore this value
             #   i.e. ignore  "days_since_prev_ED_visit" when "num_prior_ED_visits_within_5_years" == 0
@@ -336,9 +346,9 @@ def build_features(
 
 def split_columns(
     df: pl.DataFrame,
+    embed_cols: list[str],
     meta_cols: list[str],
     targ_cols: list[str],
-    embed_cols: list[str],
 ) -> dict[str, pl.DataFrame]:
     """Split dataframe columns into logical groups.
 
