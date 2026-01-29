@@ -185,17 +185,24 @@ class FusionModel(nn.Module):
         # Encode tabular features
         tab_hidden = self.tabular_encoder(tabular_cont_feats, tabular_categ_feats)
 
-        # Replace missing embeddings with learnable parameter
-        batch_size = embedding_feats.shape[0]
-        missing_expanded = self.missing_embedding.unsqueeze(0).expand(batch_size, -1)
-        has_emb_expanded = has_embedding.unsqueeze(-1).expand(-1, embedding_feats.shape[1])
-        embedding = torch.where(has_emb_expanded, embedding_feats, missing_expanded)
-
-        # Encode embeddings
-        emb_hidden = self.embedding_encoder(embedding)
+        # Encode embedding features
+        embedding_feats = self._fill_missing_embeddings(embedding_feats, has_embedding)
+        emb_hidden = self.embedding_encoder(embedding_feats)
 
         # Fuse and predict
         fused = torch.cat([tab_hidden, emb_hidden], dim=-1)
         logits = self.prediction_head(fused)
-
         return logits.squeeze(-1)
+
+
+    def _fill_missing_embeddings(
+        self,
+        embedding_feats: torch.Tensor,  # (batch, emb_dim)
+        has_embedding: torch.Tensor,    # (batch,) bool
+    ) -> torch.Tensor:
+        """Replace missing embeddings with learnable parameter."""
+        # (emb_dim,) -> (batch, emb_dim)
+        missing = self.missing_embedding.expand(embedding_feats.shape[0], -1)
+        # (batch,) -> (batch, emb_dim)
+        mask = has_embedding.unsqueeze(-1).expand_as(embedding_feats)
+        return torch.where(mask, embedding_feats, missing)
