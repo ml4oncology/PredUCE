@@ -288,16 +288,6 @@ def build_features(
         pl.col("days_since_last_treatment").is_null().alias("no_prior_treatment"),
     )
 
-    # one-hot-encode categorical columns with low-cardinality
-    # WARNING: assumes categories will remain constant over time
-    df = df.to_dummies(columns=encode_cols)
-
-    # map high-cardinal categories to indices for learned embeddings
-    for col in embed_cols:
-        df = df.with_columns(
-            (pl.col(col).rank("dense") - 1).cast(pl.UInt32).alias(f"{col}_idx")
-        )
-
     # clip columns hueristically before imputation
     df = df.with_columns(
         [
@@ -312,8 +302,19 @@ def build_features(
             *[pl.col(col).fill_null(0) for col in CANCER_DRUGS],
             pl.col("radiation_dose_given").fill_null(0),
             pl.col("prev_hospitalization_length_of_stay").fill_null(0),
+            pl.col('primary_site_desc').fill_null("Missing primary site"),
         ]
     )
+
+    # one-hot-encode categorical columns with low-cardinality
+    # WARNING: assumes categories will remain constant over time
+    df = df.to_dummies(columns=encode_cols)
+
+    # map high-cardinal categories to indices for learned embeddings
+    for col in embed_cols:
+        df = df.with_columns(
+            (pl.col(col).rank("dense") - 1).cast(pl.UInt16).alias(f"{col}_idx")
+        )
 
     # impute columns via missing indicator approach (MIA)
     # use only the columns that exist in the data
