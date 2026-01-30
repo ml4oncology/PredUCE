@@ -41,7 +41,6 @@ META_COLS = [
 @dataclass
 class ModelConfig:
     """Model architecture configuration."""
-
     # Tabular data encoder
     tabular_hidden_dim: list[int] = field(default_factory=lambda: [256, 128])
     tabular_dropout: float = 0.3
@@ -58,7 +57,6 @@ class ModelConfig:
 @dataclass
 class TrainConfig:
     """Training configuration."""
-
     batch_size: int = 64
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
