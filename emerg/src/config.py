@@ -63,3 +63,8 @@ class TrainConfig:
     epochs: int = 100
     patience: int = 10  # early stopping
     pos_weight: float | None = None  # computed from data if None
+
+    # Learning rate scheduling (ReduceLROnPlateau)
+    lr_patience: int = 3  # epochs before reducing LR
+    lr_factor: float = 0.5  # factor to reduce LR by
+    lr_min: float = 1e-6  # minimum learning rate

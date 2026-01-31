@@ -1,4 +1,11 @@
-"""Training loop and utilities for multimodal ED prediction."""
+"""Training loop and utilities for multimodal ED prediction.
+
+TODO: modality dropout
+TODO: multi-task prediction heads and multi-task loss
+TODO: gradient balancing / gradient clipping
+TODO: auxiliary losses (i.e. contrastive loss)
+TODO: modality-specific learning rates
+"""
 import logging
 
 import numpy as np
@@ -100,6 +107,15 @@ def train(
         weight_decay=config.weight_decay,
     )
 
+    # Setup learning rate scheduler
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=config.lr_factor,
+        patience=config.lr_patience,
+        min_lr=config.lr_min,
+    )
+
     # Setup loss function with optional class weighting
     if config.pos_weight is not None:
         pos_weight = torch.tensor([config.pos_weight])
@@ -113,6 +129,7 @@ def train(
         "val_loss": [],
         "val_auroc": [],
         "val_auprc": [],
+        "lr": [],
     }
 
     best_auroc = 0.0
@@ -130,12 +147,18 @@ def train(
         history["val_auroc"].append(val_metrics["auroc"])
         history["val_auprc"].append(val_metrics["auprc"])
 
+        # Step the learning rate scheduler
+        scheduler.step(val_metrics["loss"])
+        current_lr = optimizer.param_groups[0]["lr"]
+        history["lr"].append(current_lr)
+
         logger.info(
             f"Epoch {epoch + 1}/{config.epochs} - "
             f"Train Loss: {train_loss:.4f}, "
             f"Val Loss: {val_metrics['loss']:.4f}, "
             f"Val AUROC: {val_metrics['auroc']:.4f}, "
-            f"Val AUPRC: {val_metrics['auprc']:.4f}"
+            f"Val AUPRC: {val_metrics['auprc']:.4f}, "
+            f"LR: {current_lr:.2e}"
         )
 
         # Check for improvement
@@ -149,6 +172,7 @@ def train(
                     "epoch": epoch,
                     "model_state_dict": model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
                     "val_auroc": best_auroc,
                 },
                 best_model_path,
