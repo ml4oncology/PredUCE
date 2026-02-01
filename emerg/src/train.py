@@ -2,7 +2,6 @@
 
 TODO: modality dropout
 TODO: multi-task prediction heads and multi-task loss
-TODO: gradient balancing / gradient clipping
 TODO: auxiliary losses (i.e. contrastive loss)
 TODO: modality-specific learning rates
 """
@@ -31,6 +30,8 @@ def train_epoch(
     dataloader: DataLoader,
     optimizer: torch.optim.Optimizer,
     criterion: nn.Module,
+    grad_clip_norm: float | None = None,
+    grad_balance: bool = False,
 ) -> float:
     """Train for a single epoch."""
     model.train()
@@ -41,6 +42,15 @@ def train_epoch(
         logits = model(**batch)
         loss = criterion(logits, target)
         loss.backward()
+
+        # Gradient balancing (before clipping)
+        if grad_balance:
+            _balance_gradients(model)
+
+        # Gradient clipping
+        if grad_clip_norm is not None:
+            nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+
         optimizer.step()
         total_loss += loss.item()
     return total_loss / len(dataloader)
@@ -149,7 +159,11 @@ def train(
 
     for epoch in range(config.epochs):
         # Train
-        train_loss = train_epoch(model, train_loader, optimizer, criterion)
+        train_loss = train_epoch(
+            model, train_loader, optimizer, criterion,
+            grad_clip_norm=config.grad_clip_norm,
+            grad_balance=config.grad_balance,
+        )
         history["train_loss"].append(train_loss)
 
         # Validate
@@ -205,3 +219,40 @@ def train(
         "best_model_path": best_model_path,
         "history": history,
     }
+
+
+def _compute_grad_norm(params) -> float:
+    """Compute the total gradient norm for a set of parameters."""
+    total_norm = 0.0
+    for p in params:
+        if p.grad is not None:
+            total_norm += p.grad.data.norm(2).item() ** 2
+    return total_norm ** 0.5
+
+
+@torch.no_grad()
+def _balance_gradients(model: FusionModel, epsilon: float = 1e-8) -> None:
+    """Balance gradients across modalities by normalizing each encoder's gradients.
+
+    This prevents one modality from dominating the gradient updates.
+    """
+    # Get gradient norms for each encoder
+    tab_norm = _compute_grad_norm(model.tabular_encoder.parameters())
+    emb_norm = _compute_grad_norm(model.embedding_encoder.parameters())
+    if tab_norm < epsilon or emb_norm < epsilon:
+        return
+
+    # Compute target norm
+    target_norm = (tab_norm + emb_norm) / 2 
+
+    # Scale gradients to target norm
+    tab_scale = target_norm / tab_norm
+    emb_scale = target_norm / emb_norm
+
+    for p in model.tabular_encoder.parameters():
+        if p.grad is not None:
+            p.grad.data.mul_(tab_scale)
+
+    for p in model.embedding_encoder.parameters():
+        if p.grad is not None:
+            p.grad.data.mul_(emb_scale)
