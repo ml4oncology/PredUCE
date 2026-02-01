@@ -107,7 +107,18 @@ def train(
         weight_decay=config.weight_decay,
     )
 
-    # Setup learning rate scheduler
+    # Setup learning rate schedulers
+    # Warmup scheduler (linear warmup from start_factor to 1.0)
+    warmup_scheduler = None
+    if config.warmup_epochs > 0:
+        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=config.warmup_start_factor,
+            end_factor=1.0,
+            total_iters=config.warmup_epochs,
+        )
+
+    # Main scheduler (ReduceLROnPlateau, applied after warmup)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode="min",
@@ -147,13 +158,17 @@ def train(
         history["val_auroc"].append(val_metrics["auroc"])
         history["val_auprc"].append(val_metrics["auprc"])
 
-        # Step the learning rate scheduler
-        scheduler.step(val_metrics["loss"])
+        # Step the appropriate learning rate scheduler
+        if warmup_scheduler is not None and epoch < config.warmup_epochs:
+            warmup_scheduler.step()
+        else:
+            scheduler.step(val_metrics["loss"])
         current_lr = optimizer.param_groups[0]["lr"]
         history["lr"].append(current_lr)
 
+        warmup_indicator = " [warmup]" if epoch < config.warmup_epochs else ""
         logger.info(
-            f"Epoch {epoch + 1}/{config.epochs} - "
+            f"Epoch {epoch + 1}/{config.epochs}{warmup_indicator} - "
             f"Train Loss: {train_loss:.4f}, "
             f"Val Loss: {val_metrics['loss']:.4f}, "
             f"Val AUROC: {val_metrics['auroc']:.4f}, "
@@ -167,16 +182,16 @@ def train(
             patience_counter = 0
 
             # Save checkpoint
-            torch.save(
-                {
-                    "epoch": epoch,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scheduler_state_dict": scheduler.state_dict(),
-                    "val_auroc": best_auroc,
-                },
-                best_model_path,
-            )
+            checkpoint = {
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "val_auroc": best_auroc,
+            }
+            if warmup_scheduler is not None:
+                checkpoint["warmup_scheduler_state_dict"] = warmup_scheduler.state_dict()
+            torch.save(checkpoint, best_model_path)
         else:
             patience_counter += 1
 

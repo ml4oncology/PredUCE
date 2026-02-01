@@ -64,7 +64,11 @@ class TrainConfig:
     patience: int = 10  # early stopping
     pos_weight: float | None = None  # computed from data if None
 
-    # Learning rate scheduling (ReduceLROnPlateau)
+    # Warmup
+    warmup_epochs: int = 0  # number of warmup epochs (0 = no warmup)
+    warmup_start_factor: float = 0.1  # start LR at this fraction of target
+
+    # Learning rate scheduling (ReduceLROnPlateau, applied after warmup)
     lr_patience: int = 3  # epochs before reducing LR
     lr_factor: float = 0.5  # factor to reduce LR by
     lr_min: float = 1e-6  # minimum learning rate
