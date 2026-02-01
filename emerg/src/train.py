@@ -102,9 +102,10 @@ class Trainer:
         """Run full training loop with early stopping.
 
         Returns:
-            Dictionary containing training history and best model path.
+            Dictionary containing training history and best/last model paths.
         """
         best_model_path = self.save_dir / "best_model.pt"
+        last_model_path = self.save_dir / "last_checkpoint.pt"
 
         for epoch in range(self.current_epoch, self.config.epochs):
             self.current_epoch = epoch
@@ -135,13 +136,16 @@ class Trainer:
                 f"LR: {current_lr:.2e}"
             )
 
-            # Check for improvement
+            # Check for improvement and save best model
             if val_metrics["auroc"] > self.best_auroc:
                 self.best_auroc = val_metrics["auroc"]
                 self.patience_counter = 0
                 self.save_checkpoint(best_model_path)
             else:
                 self.patience_counter += 1
+
+            # Always save last checkpoint for resuming
+            self.save_checkpoint(last_model_path)
 
             # Early stopping
             if self.patience_counter >= self.config.patience:
@@ -151,6 +155,7 @@ class Trainer:
         return {
             "best_auroc": self.best_auroc,
             "best_model_path": str(best_model_path),
+            "last_model_path": str(last_model_path),
             "history": self.history,
         }
 
