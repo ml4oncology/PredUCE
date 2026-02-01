@@ -8,7 +8,7 @@ from make_clinical_dataset.shared.constants import (
     LAB_COLS,
     SYMP_COLS,
 )
-from preduce.emerg.config import EMBEDDING_SECTIONS
+from preduce.emerg.config import EMBED_COLS
 from sklearn.model_selection import GroupShuffleSplit
 
 logger = logging.getLogger(__name__)
@@ -35,9 +35,7 @@ DEFAULT_IMPUTE_COLS = (
 DEFAULT_ENCODE_COLS = ["intent", "sex"]
 
 # learned embedding (high-cardinal categorical features)
-DEFAULT_EMBED_COLS = [
-    "primary_site_desc",
-]
+DEFAULT_CAT_EMBED_COLS = ["primary_site_desc"]
 
 # outlier clipping
 DEFAULT_CLIP_COLS = ["body_surface_area", "height", "weight"] + LAB_COLS
@@ -238,10 +236,7 @@ def load_data(
     # Load data
     tab_df = pl.read_parquet(tab_path)
     note_df = pl.read_parquet(note_path, columns=["mrn", "clinic_date", "note_id"])
-    text_df = pl.read_parquet(
-        text_path,
-        columns=["note_id"] + [f"{section}_text_id" for section in EMBEDDING_SECTIONS],
-    )
+    text_df = pl.read_parquet(text_path, columns=["note_id"] + EMBED_COLS)
 
     # Get the closest clinical note prior to assessment date within the lookback window
     note_df = note_df.rename(
@@ -267,14 +262,14 @@ def build_features(
     df: pl.DataFrame,
     encode_cols: list[str] = None,
     impute_cols: list[str] = None,
-    embed_cols: list[str] = None,
+    cat_embed_cols: list[str] = None,
 ) -> pl.DataFrame:
     if encode_cols is None:
         encode_cols = DEFAULT_ENCODE_COLS
     if impute_cols is None:
         impute_cols = DEFAULT_IMPUTE_COLS
-    if embed_cols is None:
-        embed_cols = DEFAULT_EMBED_COLS
+    if cat_embed_cols is None:
+        cat_embed_cols = DEFAULT_CAT_EMBED_COLS
 
     # TODO: make it robust to missing columns
     # keep only the first treatment of a given week
@@ -302,7 +297,7 @@ def build_features(
             *[pl.col(col).fill_null(0) for col in CANCER_DRUGS],
             pl.col("radiation_dose_given").fill_null(0),
             pl.col("prev_hospitalization_length_of_stay").fill_null(0),
-            pl.col('primary_site_desc').fill_null("Missing primary site"),
+            pl.col("primary_site_desc").fill_null("Missing primary site"),
         ]
     )
 
@@ -311,7 +306,7 @@ def build_features(
     df = df.to_dummies(columns=encode_cols)
 
     # map high-cardinal categories to indices for learned embeddings
-    for col in embed_cols:
+    for col in cat_embed_cols:
         df = df.with_columns(
             (pl.col(col).rank("dense") - 1).cast(pl.UInt16).alias(f"{col}_idx")
         )

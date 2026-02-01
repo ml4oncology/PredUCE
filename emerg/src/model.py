@@ -8,6 +8,7 @@ from preduce.emerg.config import ModelConfig
 
 class MLPBlock(nn.Module):
     """MLP block with BatchNorm, activation, and dropout."""
+
     def __init__(
         self,
         in_dim: int,
@@ -27,19 +28,20 @@ class MLPBlock(nn.Module):
         x = self.activation(x)
         x = self.dropout(x)
         return x
-    
+
 
 class TabularEncoder(nn.Module):
     """MLP encoder for tabular features.
 
     Learn embeddings for categorical columns.
     """
+
     def __init__(
-        self, 
-        input_dim: int, 
-        hidden_dims: list[int], 
+        self,
+        input_dim: int,
+        hidden_dims: list[int],
         dropout: float,
-        categ_sizes: dict[str, int], # {column_name: num_unique_values}
+        categ_sizes: dict[str, int],  # {column_name: num_unique_values}
     ):
         """
         Args:
@@ -49,10 +51,12 @@ class TabularEncoder(nn.Module):
         super().__init__()
 
         # embedding for categorical columns
-        self.categ_embs = nn.ModuleDict({
-            col: nn.Embedding(nunique, self.embedding_size(nunique))
-            for col, nunique in categ_sizes.items()
-        })
+        self.categ_embs = nn.ModuleDict(
+            {
+                col: nn.Embedding(nunique, self.embedding_size(nunique))
+                for col, nunique in categ_sizes.items()
+            }
+        )
 
         # adjust the input dimension to include categorical embeddings
         total_emb_dim = sum(emb.embedding_dim for emb in self.categ_embs.values())
@@ -67,7 +71,7 @@ class TabularEncoder(nn.Module):
         self.output_dim = hidden_dims[-1]
 
     def forward(
-        self, 
+        self,
         cont_feats: torch.Tensor,
         categ_feats: dict[str, torch.Tensor],  # {column_name: indices}
     ) -> torch.Tensor:
@@ -85,11 +89,12 @@ class TabularEncoder(nn.Module):
         """Compute embedding size for categorical features based on cardinality.
         This Heuristics is based on fast.ai
         """
-        return min(max_dim, round(1.6 * cardinality ** 0.56))
-    
+        return min(max_dim, round(1.6 * cardinality**0.56))
+
 
 class EmbeddingEncoder(nn.Module):
     """MLP encoder for pre-computed text embeddings"""
+
     def __init__(self, input_dim: int, hidden_dims: list[int], dropout: float):
         super().__init__()
 
@@ -128,7 +133,7 @@ class FusionModel(nn.Module):
         self,
         tabular_input_dim: int,
         embedding_input_dim: int,
-        categ_sizes: dict[str, int], # {column_name: num_unique_values}
+        categ_sizes: dict[str, int],  # {column_name: num_unique_values}
         model_config: ModelConfig | None = None,
     ):
         """
@@ -143,22 +148,20 @@ class FusionModel(nn.Module):
         # Tabular encoder
         self.tabular_encoder = TabularEncoder(
             input_dim=tabular_input_dim,
-            hidden_dims=self.config.tabular_hidden_dims,
+            hidden_dims=self.config.tabular_hidden_dim,
             dropout=self.config.tabular_dropout,
-            categ_sizes=categ_sizes
+            categ_sizes=categ_sizes,
         )
 
         # Embedding encoder
         self.embedding_encoder = EmbeddingEncoder(
             input_dim=embedding_input_dim,
-            hidden_dims=self.config.embedding_hidden_dims,
+            hidden_dims=self.config.embedding_hidden_dim,
             dropout=self.config.embedding_dropout,
         )
 
         # Learnable embedding for missing text embeddings
-        self.missing_embedding = nn.Parameter(
-            torch.randn(embedding_input_dim)
-        )
+        self.missing_embedding = nn.Parameter(torch.randn(embedding_input_dim))
 
         # Compute fusion input dimension
         fusion_input_dim = (
@@ -168,12 +171,11 @@ class FusionModel(nn.Module):
         # Prediction head
         layers = []
         prev_dim = fusion_input_dim
-        for hidden_dim in self.config.fusion_hidden_dims:
+        for hidden_dim in self.config.fusion_hidden_dim:
             layers.append(MLPBlock(prev_dim, hidden_dim, self.config.fusion_dropout))
             prev_dim = hidden_dim
         layers.append(nn.Linear(prev_dim, 1))
         self.prediction_head = nn.Sequential(*layers)
-
 
     def forward(
         self,
@@ -194,11 +196,10 @@ class FusionModel(nn.Module):
         logits = self.prediction_head(fused)
         return logits.squeeze(-1)
 
-
     def _fill_missing_embeddings(
         self,
         embedding_feats: torch.Tensor,  # (batch, emb_dim)
-        has_embedding: torch.Tensor,    # (batch,) bool
+        has_embedding: torch.Tensor,  # (batch,) bool
     ) -> torch.Tensor:
         """Replace missing embeddings with learnable parameter."""
         # (emb_dim,) -> (batch, emb_dim)
