@@ -1,7 +1,6 @@
 """Training loop and utilities for multimodal ED prediction.
 
 TODO: modality dropout
-TODO: multi-task prediction heads and multi-task loss
 TODO: auxiliary losses (i.e. contrastive loss)
 TODO: modality-specific learning rates
 """
@@ -91,11 +90,40 @@ class Trainer:
 
 
     def _setup_criterion(self) -> None:
+        # Use reduction='none' for per-element loss (needed for multi-task masking)
         if self.config.pos_weight is not None:
             pos_weight = torch.tensor([self.config.pos_weight])
-            self.criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+            self.criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction='none')
         else:
-            self.criterion = nn.BCEWithLogitsLoss()
+            self.criterion = nn.BCEWithLogitsLoss(reduction='none')
+
+
+    def _compute_masked_loss(
+        self,
+        logits: torch.Tensor,
+        target: torch.Tensor,
+        invalid_value: float = -1,
+    ) -> torch.Tensor:
+        """Compute loss with per-target masking for multi-task learning.
+
+        Args:
+            logits: Model predictions, shape [batch_size, num_tasks]
+            target: Ground truth labels, shape [batch_size, num_tasks]
+            invalid_value: Value indicating missing/invalid targets (default: -1)
+
+        Returns:
+            Scalar loss averaged over valid targets only
+        """
+        mask = target != invalid_value
+
+        # Handle case where all targets are invalid
+        if mask.sum() == 0:
+            return torch.tensor(0.0, device=logits.device, requires_grad=True)
+
+        # Compute per-element loss and mask
+        loss = self.criterion(logits, target)
+        masked_loss = (loss * mask).sum() / mask.sum()
+        return masked_loss
 
 
     def train(self) -> dict:
@@ -164,12 +192,18 @@ class Trainer:
         """Train for a single epoch."""
         self.model.train()
         total_loss = 0.0
+        num_batches = 0
 
         for batch in self.train_loader:
-            target = batch.pop("target")
+            target = batch.pop("target").float()
+
+            # Skip batch if no valid targets
+            if (target == -1).all():
+                continue
+
             self.optimizer.zero_grad()
             logits = self.model(**batch)
-            loss = self.criterion(logits, target)
+            loss = self._compute_masked_loss(logits, target)
             loss.backward()
 
             # Gradient balancing (before clipping)
@@ -184,41 +218,59 @@ class Trainer:
 
             self.optimizer.step()
             total_loss += loss.item()
+            num_batches += 1
 
-        return total_loss / len(self.train_loader)
+        return total_loss / max(num_batches, 1)
 
 
     def evaluate(self, dataloader: DataLoader) -> dict:
         """Evaluate model on a dataset.
 
         Returns:
-            Dictionary containing loss, preds, labels, and metrics.
+            Dictionary containing loss, preds, labels, and per-task metrics.
+            For multi-task models, auroc/auprc are averaged across tasks.
         """
         self.model.eval()
         total_loss = 0.0
+        num_batches = 0
         preds = []
         labels = []
 
         with torch.no_grad():
             for batch in dataloader:
-                target = batch.pop("target")
-                logits = self.model(**batch)
-                loss = self.criterion(logits, target)
+                target = batch.pop("target").float()  # [B, T]
+
+                # Skip batch if no valid targets
+                if (target == -1).all():
+                    continue
+
+                logits = self.model(**batch)  # [B, T]
+                loss = self._compute_masked_loss(logits, target)
                 total_loss += loss.item()
+                num_batches += 1
 
                 probs = torch.sigmoid(logits)
                 preds.append(probs.cpu().numpy())
                 labels.append(target.cpu().numpy())
 
-        preds = np.concatenate(preds)
-        labels = np.concatenate(labels)
-        metrics = auc_scores(labels, preds)
+        preds = np.concatenate(preds)  # [N, T]
+        labels = np.concatenate(labels)  # [N, T]
+
+        # Compute metrics per task
+        num_tasks = self.model.num_tasks
+        metrics = []
+        for t in range(num_tasks):
+            task_preds = preds[:, t]
+            task_labels = labels[:, t]
+            mask = task_labels != -1
+            if mask.sum() > 0:
+                metrics.append(auc_scores(task_labels[mask], task_preds[mask]))
 
         return {
-            "loss": total_loss / len(dataloader),
+            "loss": total_loss / max(num_batches, 1),
             "preds": preds,
             "labels": labels,
-            **metrics,
+            "metrics": metrics,
         }
 
 

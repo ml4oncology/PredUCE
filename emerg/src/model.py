@@ -134,16 +134,19 @@ class FusionModel(nn.Module):
         tabular_input_dim: int,
         embedding_input_dim: int,
         categ_sizes: dict[str, int],  # {column_name: num_unique_values}
+        num_tasks: int = 1,
         model_config: ModelConfig | None = None,
     ):
         """
         Args:
             tabular_input_dim: Total number of columns in tabular data, including the categorical ones
             categ_sizes: Mapping of categorical columns to their cardinalities
+            num_tasks: Number of prediction tasks (for multi-task learning)
         """
         super().__init__()
 
         self.config = ModelConfig() if model_config is None else model_config
+        self.num_tasks = num_tasks
 
         # Tabular encoder
         self.tabular_encoder = TabularEncoder(
@@ -174,7 +177,7 @@ class FusionModel(nn.Module):
         for hidden_dim in self.config.fusion_hidden_dim:
             layers.append(MLPBlock(prev_dim, hidden_dim, self.config.fusion_dropout))
             prev_dim = hidden_dim
-        layers.append(nn.Linear(prev_dim, 1))
+        layers.append(nn.Linear(prev_dim, num_tasks))
         self.prediction_head = nn.Sequential(*layers)
 
     def forward(
@@ -184,6 +187,10 @@ class FusionModel(nn.Module):
         embedding_feats: torch.Tensor,
         has_embedding: torch.Tensor,
     ) -> torch.Tensor:
+        """
+        Returns:
+            logits: Shape [batch_size, num_tasks]
+        """
         # Encode tabular features
         tab_hidden = self.tabular_encoder(tabular_cont_feats, tabular_categ_feats)
 
@@ -194,7 +201,7 @@ class FusionModel(nn.Module):
         # Fuse and predict
         fused = torch.cat([tab_hidden, emb_hidden], dim=-1)
         logits = self.prediction_head(fused)
-        return logits.squeeze(-1)
+        return logits
 
     def _fill_missing_embeddings(
         self,
