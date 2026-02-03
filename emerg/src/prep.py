@@ -8,7 +8,7 @@ from make_clinical_dataset.shared.constants import (
     LAB_COLS,
     SYMP_COLS,
 )
-from preduce.emerg.config import EMBED_COLS
+from preduce.emerg.config import EMBED_COLS, META_COLS
 from sklearn.model_selection import GroupShuffleSplit
 
 logger = logging.getLogger(__name__)
@@ -338,6 +338,58 @@ def build_features(
     )
 
     return df
+
+
+def prepare_splits(
+    df: pl.DataFrame,
+    embed_cols: list[str] = None,
+    meta_cols: list[str] = None,
+    targ_cols: list[str] = None,
+    split_date: str = "2022-01-01",
+) -> dict[str, dict[str, pl.DataFrame]]:
+    """Prepare and organize train/valid/test splits.
+
+    Fits the Preparer on train data and transforms all splits, then splits
+    columns into logical groups for each.
+
+    Args:
+        embed_cols: Columns for text embedding features
+        meta_cols: Columns for metadata
+        targ_cols: Columns for targets
+
+    Returns:
+        Dictionary with structure:
+        {
+            "train": {"X_tabular": ..., "X_embedding": ..., "y": ..., "meta": ...},
+            "valid": {"X_tabular": ..., "X_embedding": ..., "y": ..., "meta": ...},
+            "test": {"X_tabular": ..., "X_embedding": ..., "y": ..., "meta": ...},
+        }
+    """
+    if embed_cols is None:
+        embed_cols = EMBED_COLS
+    if meta_cols is None:
+        meta_cols = META_COLS
+    if targ_cols is None:
+        targ_cols = [col for col in df.columns if col.startswith("target")]
+    
+    # Split the data into train, valid, test set
+    splitter = Splitter()
+    train_df, valid_df, test_df = splitter.split_data(
+        df, split_date=split_date, visit_col="assessment_date", 
+    )
+
+    # Transform the three sets BASED ON the train data
+    preparer = Preparer(exclude_cols=embed_cols+meta_cols+targ_cols)
+    train_df = preparer.fit_transform(train_df)
+    valid_df = preparer.transform(valid_df)
+    test_df = preparer.transform(test_df)
+    
+    # Split column into logical groups for each set
+    return {
+        "train": split_columns(train_df, embed_cols, meta_cols, targ_cols),
+        "valid": split_columns(valid_df, embed_cols, meta_cols, targ_cols),
+        "test": split_columns(test_df, embed_cols, meta_cols, targ_cols),
+    }
 
 
 def split_columns(
