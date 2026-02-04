@@ -34,7 +34,8 @@ META_COLS = [
     "prev_hospitalization_note",
     "prev_ED_visit_note",
     "prev_ED_visit_CTAS_score",
-    "prev_note_id"
+    "prev_note_id",
+    "prev_clinic_date"
 ]
 
 
