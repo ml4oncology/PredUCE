@@ -288,12 +288,11 @@ class Trainer:
             task_preds = preds[:, t]
             task_labels = labels[:, t]
             mask = task_labels != -1
-            if mask.sum() > 0:
-                metrics[t] = auc_scores(task_labels[mask], task_preds[mask])
+            metrics[t] = auc_scores(task_labels[mask], task_preds[mask])
         # Compute metrics overall avg
         metrics['avg'] = {
-            'AUROC': np.mean(metrics[t]['AUROC'] for t in range(num_tasks)),
-            'AUPRC': np.mean(metrics[t]['AUPRC'] for t in range(num_tasks)),
+            'AUROC': np.mean([metrics[t]['AUROC'] for t in range(num_tasks)]),
+            'AUPRC': np.mean([metrics[t]['AUPRC'] for t in range(num_tasks)]),
         }
 
         return {
