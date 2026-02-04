@@ -11,6 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from ml_common.eval import auc_scores
 from preduce.emerg.config import TrainConfig
@@ -135,7 +136,7 @@ class Trainer:
         best_model_path = self.save_dir / "best_model.pt"
         last_model_path = self.save_dir / "last_checkpoint.pt"
 
-        for epoch in range(self.current_epoch, self.config.epochs):
+        for epoch in tqdm(range(self.current_epoch, self.config.epochs), leave=False):
             self.current_epoch = epoch
 
             # Train
