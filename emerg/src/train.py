@@ -6,6 +6,7 @@ TODO: modality-specific learning rates
 """
 import logging
 import random
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +33,17 @@ torch.manual_seed(42)
 torch.cuda.manual_seed_all(42)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
+
+
+@dataclass
+class EvalResult:
+    """Result from model evaluation."""
+    loss: float
+    avg_auroc: float
+    avg_auprc: float
+    preds: np.ndarray
+    labels: np.ndarray
+    per_task_metrics: dict  # task_idx -> {"AUROC": float, "AUPRC": float}
 
 
 class Trainer:
@@ -167,13 +179,13 @@ class Trainer:
             self.history["train_loss"].append(train_loss)
 
             # Validate
-            val_metrics = self.evaluate(self.valid_loader)
-            self.history["val_loss"].append(val_metrics["loss"])
-            self.history["val_auroc"].append(val_metrics["avg"]["AUROC"])
-            self.history["val_auprc"].append(val_metrics["avg"]["AUPRC"])
+            val_result = self.evaluate(self.valid_loader)
+            self.history["val_loss"].append(val_result.loss)
+            self.history["val_auroc"].append(val_result.avg_auroc)
+            self.history["val_auprc"].append(val_result.avg_auprc)
 
             # Step the appropriate learning rate scheduler
-            self._step_scheduler(val_metrics["loss"])
+            self._step_scheduler(val_result.loss)
             current_lr = self.optimizer.param_groups[0]["lr"]
             self.history["lr"].append(current_lr)
 
@@ -182,15 +194,15 @@ class Trainer:
             logger.info(
                 f"Epoch {epoch + 1}/{self.config.epochs}{warmup_indicator} - "
                 f"Train Loss: {train_loss:.4f}, "
-                f"Val Loss: {val_metrics['loss']:.4f}, "
-                f"Val AUROC: {val_metrics['avg']['AUROC']:.4f}, "
-                f"Val AUPRC: {val_metrics['avg']['AUPRC']:.4f}, "
+                f"Val Loss: {val_result.loss:.4f}, "
+                f"Val AUROC: {val_result.avg_auroc:.4f}, "
+                f"Val AUPRC: {val_result.avg_auprc:.4f}, "
                 f"LR: {current_lr:.2e}"
             )
 
             # Check for improvement and save best model
-            if val_metrics["avg"]["AUROC"] > self.best_auroc:
-                self.best_auroc = val_metrics["avg"]["auroc"]
+            if val_result.avg_auroc > self.best_auroc:
+                self.best_auroc = val_result.avg_auroc
                 self.patience_counter = 0
                 self.save_checkpoint(best_model_path)
             else:
@@ -248,12 +260,8 @@ class Trainer:
         return total_loss / max(num_batches, 1)
 
 
-    def evaluate(self, dataloader: DataLoader) -> dict:
-        """Evaluate model on a dataset.
-
-        Returns:
-            Dictionary containing loss, preds, labels, metrics (overall avg and per-task).
-        """
+    def evaluate(self, dataloader: DataLoader) -> EvalResult:
+        """Evaluate model on a dataset."""
         self.model.eval()
         total_loss = 0.0
         num_batches = 0
@@ -290,17 +298,17 @@ class Trainer:
             mask = task_labels != -1
             metrics[t] = auc_scores(task_labels[mask], task_preds[mask])
         # Compute metrics overall avg
-        metrics['avg'] = {
-            'AUROC': np.mean([metrics[t]['AUROC'] for t in range(num_tasks)]),
-            'AUPRC': np.mean([metrics[t]['AUPRC'] for t in range(num_tasks)]),
-        }
+        avg_auroc = np.mean([metrics[t]['AUROC'] for t in range(num_tasks)])
+        avg_auprc = np.mean([metrics[t]['AUPRC'] for t in range(num_tasks)])
 
-        return {
-            "loss": total_loss / max(num_batches, 1),
-            "preds": preds,
-            "labels": labels,
-            "metrics": metrics,
-        }
+        return EvalResult(
+            loss=total_loss / max(num_batches, 1), 
+            avg_auroc=avg_auroc,
+            avg_auprc=avg_auprc,
+            preds=preds,
+            labels=labels,
+            per_task_metrics=metrics,
+        )
 
 
     def _step_scheduler(self, val_loss: float) -> None:
