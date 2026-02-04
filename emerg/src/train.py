@@ -169,8 +169,8 @@ class Trainer:
             # Validate
             val_metrics = self.evaluate(self.valid_loader)
             self.history["val_loss"].append(val_metrics["loss"])
-            self.history["val_auroc"].append(val_metrics["avg"]["auroc"])
-            self.history["val_auprc"].append(val_metrics["avg"]["auprc"])
+            self.history["val_auroc"].append(val_metrics["avg"]["AUROC"])
+            self.history["val_auprc"].append(val_metrics["avg"]["AUPRC"])
 
             # Step the appropriate learning rate scheduler
             self._step_scheduler(val_metrics["loss"])
@@ -183,14 +183,14 @@ class Trainer:
                 f"Epoch {epoch + 1}/{self.config.epochs}{warmup_indicator} - "
                 f"Train Loss: {train_loss:.4f}, "
                 f"Val Loss: {val_metrics['loss']:.4f}, "
-                f"Val AUROC: {val_metrics['avg']['auroc']:.4f}, "
-                f"Val AUPRC: {val_metrics['avg']['auprc']:.4f}, "
+                f"Val AUROC: {val_metrics['avg']['AUROC']:.4f}, "
+                f"Val AUPRC: {val_metrics['avg']['AUPRC']:.4f}, "
                 f"LR: {current_lr:.2e}"
             )
 
             # Check for improvement and save best model
-            if val_metrics["auroc"] > self.best_auroc:
-                self.best_auroc = val_metrics["auroc"]
+            if val_metrics["avg"]["AUROC"] > self.best_auroc:
+                self.best_auroc = val_metrics["avg"]["auroc"]
                 self.patience_counter = 0
                 self.save_checkpoint(best_model_path)
             else:
@@ -292,8 +292,8 @@ class Trainer:
                 metrics[t] = auc_scores(task_labels[mask], task_preds[mask])
         # Compute metrics overall avg
         metrics['avg'] = {
-            'auroc': np.mean(metrics[t]['auroc'] for t in range(num_tasks)),
-            'auprc': np.mean(metrics[t]['auprc'] for t in range(num_tasks)),
+            'AUROC': np.mean(metrics[t]['AUROC'] for t in range(num_tasks)),
+            'AUPRC': np.mean(metrics[t]['AUPRC'] for t in range(num_tasks)),
         }
 
         return {
