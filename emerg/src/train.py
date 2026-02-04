@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 class Trainer:
     """Trainer for multimodal fusion model."""
-
     def __init__(
         self,
         model: FusionModel,
@@ -36,8 +35,10 @@ class Trainer:
         valid_loader: DataLoader,
         config: TrainConfig | None = None,
         save_dir: str | Path | None = None,
+        device: str | torch.device = "cuda",
     ):
-        self.model = model.cuda()
+        self.device = torch.device(device)
+        self.model = model.to(self.device)
         self.train_loader = train_loader
         self.valid_loader = valid_loader
         self.config = config or TrainConfig()
@@ -97,6 +98,20 @@ class Trainer:
             self.criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction='none')
         else:
             self.criterion = nn.BCEWithLogitsLoss(reduction='none')
+
+
+    def _to_device(self, batch: dict) -> dict:
+        """Move batch tensors to device with non-blocking transfers."""
+        return {
+            "tabular_cont_feats": batch["tabular_cont_feats"].to(self.device, non_blocking=True),
+            "tabular_categ_feats": {
+                k: v.to(self.device, non_blocking=True)
+                for k, v in batch["tabular_categ_feats"].items()
+            },
+            "embedding_feats": batch["embedding_feats"].to(self.device, non_blocking=True),
+            "has_embedding": batch["has_embedding"].to(self.device, non_blocking=True),
+            "target": batch["target"].to(self.device, non_blocking=True),
+        }
 
 
     def _compute_masked_loss(
@@ -196,6 +211,7 @@ class Trainer:
         num_batches = 0
 
         for batch in self.train_loader:
+            batch = self._to_device(batch)
             target = batch.pop("target").float()
 
             # Skip batch if no valid targets
@@ -238,6 +254,7 @@ class Trainer:
 
         with torch.no_grad():
             for batch in dataloader:
+                batch = self._to_device(batch)
                 target = batch.pop("target").float()
 
                 # Skip batch if no valid targets
