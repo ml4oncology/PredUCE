@@ -159,7 +159,7 @@ class Trainer:
         best_model_path = self.save_dir / "best_model.pt"
         last_model_path = self.save_dir / "last_checkpoint.pt"
 
-        for epoch in tqdm(range(self.current_epoch, self.config.epochs), leave=False):
+        for epoch in range(self.current_epoch, self.config.epochs):
             self.current_epoch = epoch
 
             # Train
@@ -218,7 +218,7 @@ class Trainer:
         total_loss = 0.0
         num_batches = 0
 
-        for batch in self.train_loader:
+        for batch in tqdm(self.train_loader, leave=False):
             batch = self._to_device(batch)
             target = batch.pop("target").float()
 
