@@ -228,7 +228,6 @@ class Trainer:
 
         Returns:
             Dictionary containing loss, preds, labels, and per-task metrics.
-            For multi-task models, auroc/auprc are averaged across tasks.
         """
         self.model.eval()
         total_loss = 0.0
@@ -238,13 +237,13 @@ class Trainer:
 
         with torch.no_grad():
             for batch in dataloader:
-                target = batch.pop("target").float()  # [B, T]
+                target = batch.pop("target").float()
 
                 # Skip batch if no valid targets
                 if (target == -1).all():
                     continue
 
-                logits = self.model(**batch)  # [B, T]
+                logits = self.model(**batch)
                 loss = self._compute_masked_loss(logits, target)
                 total_loss += loss.item()
                 num_batches += 1
@@ -253,8 +252,8 @@ class Trainer:
                 preds.append(probs.cpu().numpy())
                 labels.append(target.cpu().numpy())
 
-        preds = np.concatenate(preds)  # [N, T]
-        labels = np.concatenate(labels)  # [N, T]
+        preds = np.concatenate(preds)
+        labels = np.concatenate(labels)
 
         # Compute metrics per task
         num_tasks = self.model.num_tasks
