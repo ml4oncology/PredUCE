@@ -5,6 +5,7 @@ TODO: auxiliary losses (i.e. contrastive loss)
 TODO: modality-specific learning rates
 """
 import logging
+import random
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +26,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+random.seed(42)
+np.random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed_all(42)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
 
 class Trainer:
     """Trainer for multimodal fusion model."""
@@ -37,11 +45,11 @@ class Trainer:
         save_dir: str | Path | None = None,
         device: str | torch.device = "cuda",
     ):
+        self.config = config or TrainConfig()
         self.device = torch.device(device)
         self.model = model.to(self.device)
         self.train_loader = train_loader
         self.valid_loader = valid_loader
-        self.config = config or TrainConfig()
         self.save_dir = Path(save_dir) if save_dir else Path(".")
 
         # Setup components
