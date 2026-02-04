@@ -169,8 +169,8 @@ class Trainer:
             # Validate
             val_metrics = self.evaluate(self.valid_loader)
             self.history["val_loss"].append(val_metrics["loss"])
-            self.history["val_auroc"].append(val_metrics["auroc"])
-            self.history["val_auprc"].append(val_metrics["auprc"])
+            self.history["val_auroc"].append(val_metrics["avg"]["auroc"])
+            self.history["val_auprc"].append(val_metrics["avg"]["auprc"])
 
             # Step the appropriate learning rate scheduler
             self._step_scheduler(val_metrics["loss"])
@@ -183,8 +183,8 @@ class Trainer:
                 f"Epoch {epoch + 1}/{self.config.epochs}{warmup_indicator} - "
                 f"Train Loss: {train_loss:.4f}, "
                 f"Val Loss: {val_metrics['loss']:.4f}, "
-                f"Val AUROC: {val_metrics['auroc']:.4f}, "
-                f"Val AUPRC: {val_metrics['auprc']:.4f}, "
+                f"Val AUROC: {val_metrics['avg']['auroc']:.4f}, "
+                f"Val AUPRC: {val_metrics['avg']['auprc']:.4f}, "
                 f"LR: {current_lr:.2e}"
             )
 
@@ -252,7 +252,7 @@ class Trainer:
         """Evaluate model on a dataset.
 
         Returns:
-            Dictionary containing loss, preds, labels, and per-task metrics.
+            Dictionary containing loss, preds, labels, metrics (overall avg and per-task).
         """
         self.model.eval()
         total_loss = 0.0
@@ -283,13 +283,18 @@ class Trainer:
 
         # Compute metrics per task
         num_tasks = self.model.num_tasks
-        metrics = []
+        metrics = {}
         for t in range(num_tasks):
             task_preds = preds[:, t]
             task_labels = labels[:, t]
             mask = task_labels != -1
             if mask.sum() > 0:
-                metrics.append(auc_scores(task_labels[mask], task_preds[mask]))
+                metrics[t] = auc_scores(task_labels[mask], task_preds[mask])
+        # Compute metrics overall avg
+        metrics['avg'] = {
+            'auroc': np.mean(metrics[t]['auroc'] for t in range(num_tasks)),
+            'auprc': np.mean(metrics[t]['auprc'] for t in range(num_tasks)),
+        }
 
         return {
             "loss": total_loss / max(num_batches, 1),
