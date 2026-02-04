@@ -105,14 +105,14 @@ def collate_fn(batch: list[dict]) -> dict:
     # Stack categorical features by column
     categ_cols = batch[0]["tabular_categ_feats"].keys()
     categ = {
-        col: torch.stack([b["tabular_categ_feats"][col] for b in batch]) 
+        col: torch.stack([b["tabular_categ_feats"][col] for b in batch]).cuda()
         for col in categ_cols
     }
 
-    cont = torch.stack([b["tabular_cont_feats"] for b in batch])
-    emb = torch.stack([b["embedding_feats"] for b in batch])
-    has_emb = torch.stack([b["has_embedding"] for b in batch])
-    target = torch.stack([b["target"] for b in batch])
+    cont = torch.stack([b["tabular_cont_feats"] for b in batch]).cuda()
+    emb = torch.stack([b["embedding_feats"] for b in batch]).cuda()
+    has_emb = torch.stack([b["has_embedding"] for b in batch]).cuda()
+    target = torch.stack([b["target"] for b in batch]).cuda()
 
     return {
         "tabular_cont_feats": cont,

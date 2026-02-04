@@ -36,7 +36,7 @@ class Trainer:
         config: TrainConfig | None = None,
         save_dir: str | Path | None = None,
     ):
-        self.model = model
+        self.model = model.cuda()
         self.train_loader = train_loader
         self.valid_loader = valid_loader
         self.config = config or TrainConfig()
