@@ -4,6 +4,7 @@ TODO: modality dropout
 TODO: auxiliary losses (i.e. contrastive loss)
 TODO: modality-specific learning rates
 """
+
 import logging
 import random
 from dataclasses import dataclass
@@ -22,8 +23,8 @@ from preduce.emerg.model import FusionModel
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s %(levelname)s:%(message)s',
-    datefmt='%I:%M:%S'
+    format="%(asctime)s %(levelname)s:%(message)s",
+    datefmt="%I:%M:%S",
 )
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ torch.backends.cudnn.benchmark = False
 @dataclass
 class EvalResult:
     """Result from model evaluation."""
+
     loss: float
     avg_auroc: float
     avg_auprc: float
@@ -48,6 +50,7 @@ class EvalResult:
 
 class Trainer:
     """Trainer for multimodal fusion model."""
+
     def __init__(
         self,
         model: FusionModel,
@@ -81,14 +84,12 @@ class Trainer:
         self.patience_counter = 0
         self.current_epoch = 0
 
-
     def _setup_optimizer(self) -> None:
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
             lr=self.config.learning_rate,
             weight_decay=self.config.weight_decay,
         )
-
 
     def _setup_schedulers(self) -> None:
         # Warmup scheduler (linear warmup from start_factor to 1.0)
@@ -110,29 +111,32 @@ class Trainer:
             min_lr=self.config.lr_min,
         )
 
-
     def _setup_criterion(self) -> None:
         # Use reduction='none' for per-element loss (needed for multi-task masking)
         if self.config.pos_weight is not None:
             pos_weight = torch.tensor([self.config.pos_weight])
-            self.criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight, reduction='none')
+            self.criterion = nn.BCEWithLogitsLoss(
+                pos_weight=pos_weight, reduction="none"
+            )
         else:
-            self.criterion = nn.BCEWithLogitsLoss(reduction='none')
-
+            self.criterion = nn.BCEWithLogitsLoss(reduction="none")
 
     def _to_device(self, batch: dict) -> dict:
         """Move batch tensors to device with non-blocking transfers."""
         return {
-            "tabular_cont_feats": batch["tabular_cont_feats"].to(self.device, non_blocking=True),
+            "tabular_cont_feats": batch["tabular_cont_feats"].to(
+                self.device, non_blocking=True
+            ),
             "tabular_categ_feats": {
                 k: v.to(self.device, non_blocking=True)
                 for k, v in batch["tabular_categ_feats"].items()
             },
-            "embedding_feats": batch["embedding_feats"].to(self.device, non_blocking=True),
+            "embedding_feats": batch["embedding_feats"].to(
+                self.device, non_blocking=True
+            ),
             "has_embedding": batch["has_embedding"].to(self.device, non_blocking=True),
             "target": batch["target"].to(self.device, non_blocking=True),
         }
-
 
     def _compute_masked_loss(
         self,
@@ -160,7 +164,6 @@ class Trainer:
         loss = self.criterion(logits, target)
         masked_loss = (loss * mask).sum() / mask.sum()
         return masked_loss
-
 
     def train(self) -> dict:
         """Run full training loop with early stopping.
@@ -223,7 +226,6 @@ class Trainer:
             "history": self.history,
         }
 
-
     def _train_epoch(self) -> float:
         """Train for a single epoch."""
         self.model.train()
@@ -258,7 +260,6 @@ class Trainer:
             num_batches += 1
 
         return total_loss / max(num_batches, 1)
-
 
     def evaluate(self, dataloader: DataLoader) -> EvalResult:
         """Evaluate model on a dataset."""
@@ -298,18 +299,17 @@ class Trainer:
             mask = task_labels != -1
             metrics[t] = auc_scores(task_labels[mask], task_preds[mask])
         # Compute metrics overall avg
-        avg_auroc = np.mean([metrics[t]['AUROC'] for t in range(num_tasks)])
-        avg_auprc = np.mean([metrics[t]['AUPRC'] for t in range(num_tasks)])
+        avg_auroc = np.mean([metrics[t]["AUROC"] for t in range(num_tasks)])
+        avg_auprc = np.mean([metrics[t]["AUPRC"] for t in range(num_tasks)])
 
         return EvalResult(
-            loss=total_loss / max(num_batches, 1), 
+            loss=total_loss / max(num_batches, 1),
             avg_auroc=avg_auroc,
             avg_auprc=avg_auprc,
             preds=preds,
             labels=labels,
             per_task_metrics=metrics,
         )
-
 
     def _step_scheduler(self, val_loss: float) -> None:
         """Step the appropriate scheduler based on current epoch."""
@@ -320,7 +320,6 @@ class Trainer:
             self.warmup_scheduler.step()
         else:
             self.scheduler.step(val_loss)
-
 
     @torch.no_grad()
     def _balance_gradients(self, epsilon: float = 1e-8) -> None:
@@ -348,7 +347,6 @@ class Trainer:
             if p.grad is not None:
                 p.grad.data.mul_(emb_scale)
 
-
     @staticmethod
     def _compute_grad_norm(params) -> float:
         """Compute the total L2 gradient norm for parameters."""
@@ -356,8 +354,7 @@ class Trainer:
         for p in params:
             if p.grad is not None:
                 total_norm += p.grad.data.norm(2).item() ** 2
-        return total_norm ** 0.5
-
+        return total_norm**0.5
 
     def save_checkpoint(self, path: str | Path) -> None:
         """Save training checkpoint."""
@@ -371,13 +368,14 @@ class Trainer:
             "history": self.history,
         }
         if self.warmup_scheduler is not None:
-            checkpoint["warmup_scheduler_state_dict"] = self.warmup_scheduler.state_dict()
+            checkpoint["warmup_scheduler_state_dict"] = (
+                self.warmup_scheduler.state_dict()
+            )
         torch.save(checkpoint, path)
-
 
     def load_checkpoint(self, path: str | Path) -> None:
         """Load training checkpoint to resume training."""
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
@@ -390,4 +388,6 @@ class Trainer:
             self.warmup_scheduler is not None
             and "warmup_scheduler_state_dict" in checkpoint
         ):
-            self.warmup_scheduler.load_state_dict(checkpoint["warmup_scheduler_state_dict"])
+            self.warmup_scheduler.load_state_dict(
+                checkpoint["warmup_scheduler_state_dict"]
+            )
