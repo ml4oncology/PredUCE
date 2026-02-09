@@ -1,0 +1,393 @@
+"""Training loop and utilities for multimodal ED prediction.
+
+TODO: modality dropout
+TODO: auxiliary losses (i.e. contrastive loss)
+TODO: modality-specific learning rates
+"""
+
+import logging
+import random
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+from ml_common.eval import auc_scores
+from preduce.emerg.config import TrainConfig
+from preduce.emerg.model import FusionModel
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s:%(message)s",
+    datefmt="%I:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+random.seed(42)
+np.random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed_all(42)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+
+@dataclass
+class EvalResult:
+    """Result from model evaluation."""
+
+    loss: float
+    avg_auroc: float
+    avg_auprc: float
+    preds: np.ndarray
+    labels: np.ndarray
+    per_task_metrics: dict  # task_idx -> {"AUROC": float, "AUPRC": float}
+
+
+class Trainer:
+    """Trainer for multimodal fusion model."""
+
+    def __init__(
+        self,
+        model: FusionModel,
+        train_loader: DataLoader,
+        valid_loader: DataLoader,
+        config: TrainConfig | None = None,
+        save_dir: str | Path | None = None,
+        device: str | torch.device = "cuda",
+    ):
+        self.config = config or TrainConfig()
+        self.device = torch.device(device)
+        self.model = model.to(self.device)
+        self.train_loader = train_loader
+        self.valid_loader = valid_loader
+        self.save_dir = Path(save_dir) if save_dir else Path(".")
+
+        # Setup components
+        self._setup_optimizer()
+        self._setup_schedulers()
+        self._setup_criterion()
+
+        # Training state
+        self.history = {
+            "train_loss": [],
+            "val_loss": [],
+            "val_auroc": [],
+            "val_auprc": [],
+            "lr": [],
+        }
+        self.best_auroc = 0.0
+        self.patience_counter = 0
+        self.current_epoch = 0
+
+    def _setup_optimizer(self) -> None:
+        self.optimizer = torch.optim.AdamW(
+            self.model.parameters(),
+            lr=self.config.learning_rate,
+            weight_decay=self.config.weight_decay,
+        )
+
+    def _setup_schedulers(self) -> None:
+        # Warmup scheduler (linear warmup from start_factor to 1.0)
+        self.warmup_scheduler = None
+        if self.config.warmup_epochs > 0:
+            self.warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+                self.optimizer,
+                start_factor=self.config.warmup_start_factor,
+                end_factor=1.0,
+                total_iters=self.config.warmup_epochs,
+            )
+
+        # Main scheduler (ReduceLROnPlateau, applied after warmup)
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode="min",
+            factor=self.config.lr_factor,
+            patience=self.config.lr_patience,
+            min_lr=self.config.lr_min,
+        )
+
+    def _setup_criterion(self) -> None:
+        # Use reduction='none' for per-element loss (needed for multi-task masking)
+        if self.config.pos_weight is not None:
+            pos_weight = torch.tensor([self.config.pos_weight])
+            self.criterion = nn.BCEWithLogitsLoss(
+                pos_weight=pos_weight, reduction="none"
+            )
+        else:
+            self.criterion = nn.BCEWithLogitsLoss(reduction="none")
+
+    def _to_device(self, batch: dict) -> dict:
+        """Move batch tensors to device with non-blocking transfers."""
+        return {
+            "tabular_cont_feats": batch["tabular_cont_feats"].to(
+                self.device, non_blocking=True
+            ),
+            "tabular_categ_feats": {
+                k: v.to(self.device, non_blocking=True)
+                for k, v in batch["tabular_categ_feats"].items()
+            },
+            "embedding_feats": batch["embedding_feats"].to(
+                self.device, non_blocking=True
+            ),
+            "has_embedding": batch["has_embedding"].to(self.device, non_blocking=True),
+            "target": batch["target"].to(self.device, non_blocking=True),
+        }
+
+    def _compute_masked_loss(
+        self,
+        logits: torch.Tensor,
+        target: torch.Tensor,
+        invalid_value: float = -1,
+    ) -> torch.Tensor:
+        """Compute loss with per-target masking for multi-task learning.
+
+        Args:
+            logits: Model predictions, shape [batch_size, num_tasks]
+            target: Ground truth labels, shape [batch_size, num_tasks]
+            invalid_value: Value indicating missing/invalid targets (default: -1)
+
+        Returns:
+            Scalar loss averaged over valid targets only
+        """
+        mask = target != invalid_value
+
+        # Handle case where all targets are invalid
+        if mask.sum() == 0:
+            return torch.tensor(0.0, device=logits.device, requires_grad=True)
+
+        # Compute per-element loss and mask
+        loss = self.criterion(logits, target)
+        masked_loss = (loss * mask).sum() / mask.sum()
+        return masked_loss
+
+    def train(self) -> dict:
+        """Run full training loop with early stopping.
+
+        Returns:
+            Dictionary containing training history and best/last model paths.
+        """
+        best_model_path = self.save_dir / "best_model.pt"
+        last_model_path = self.save_dir / "last_checkpoint.pt"
+
+        for epoch in range(self.current_epoch, self.config.epochs):
+            self.current_epoch = epoch
+
+            # Train
+            train_loss = self._train_epoch()
+            self.history["train_loss"].append(train_loss)
+
+            # Validate
+            val_result = self.evaluate(self.valid_loader)
+            self.history["val_loss"].append(val_result.loss)
+            self.history["val_auroc"].append(val_result.avg_auroc)
+            self.history["val_auprc"].append(val_result.avg_auprc)
+
+            # Step the appropriate learning rate scheduler
+            self._step_scheduler(val_result.loss)
+            current_lr = self.optimizer.param_groups[0]["lr"]
+            self.history["lr"].append(current_lr)
+
+            # Log progress
+            warmup_indicator = " [warmup]" if epoch < self.config.warmup_epochs else ""
+            logger.info(
+                f"Epoch {epoch + 1}/{self.config.epochs}{warmup_indicator} - "
+                f"Train Loss: {train_loss:.4f}, "
+                f"Val Loss: {val_result.loss:.4f}, "
+                f"Val AUROC: {val_result.avg_auroc:.4f}, "
+                f"Val AUPRC: {val_result.avg_auprc:.4f}, "
+                f"LR: {current_lr:.2e}"
+            )
+
+            # Check for improvement and save best model
+            if val_result.avg_auroc > self.best_auroc:
+                self.best_auroc = val_result.avg_auroc
+                self.patience_counter = 0
+                self.save_checkpoint(best_model_path)
+            else:
+                self.patience_counter += 1
+
+            # Always save last checkpoint for resuming
+            self.save_checkpoint(last_model_path)
+
+            # Early stopping
+            if self.patience_counter >= self.config.patience:
+                logger.info(f"Early stopping at epoch {epoch + 1}")
+                break
+
+        return {
+            "best_auroc": self.best_auroc,
+            "best_model_path": str(best_model_path),
+            "last_model_path": str(last_model_path),
+            "history": self.history,
+        }
+
+    def _train_epoch(self) -> float:
+        """Train for a single epoch."""
+        self.model.train()
+        total_loss = 0.0
+        num_batches = 0
+
+        for batch in tqdm(self.train_loader, leave=False):
+            batch = self._to_device(batch)
+            target = batch.pop("target").float()
+
+            # Skip batch if no valid targets
+            if (target == -1).all():
+                continue
+
+            self.optimizer.zero_grad()
+            logits = self.model(**batch)
+            loss = self._compute_masked_loss(logits, target)
+            loss.backward()
+
+            # Gradient balancing (before clipping)
+            if self.config.grad_balance:
+                self._balance_gradients()
+
+            # Gradient clipping
+            if self.config.grad_clip_norm is not None:
+                nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self.config.grad_clip_norm
+                )
+
+            self.optimizer.step()
+            total_loss += loss.item()
+            num_batches += 1
+
+        return total_loss / max(num_batches, 1)
+
+    def evaluate(self, dataloader: DataLoader) -> EvalResult:
+        """Evaluate model on a dataset."""
+        self.model.eval()
+        total_loss = 0.0
+        num_batches = 0
+        preds = []
+        labels = []
+
+        with torch.no_grad():
+            for batch in dataloader:
+                batch = self._to_device(batch)
+                target = batch.pop("target").float()
+
+                # Skip batch if no valid targets
+                if (target == -1).all():
+                    continue
+
+                logits = self.model(**batch)
+                loss = self._compute_masked_loss(logits, target)
+                total_loss += loss.item()
+                num_batches += 1
+
+                probs = torch.sigmoid(logits)
+                preds.append(probs.cpu().numpy())
+                labels.append(target.cpu().numpy())
+
+        preds = np.concatenate(preds)
+        labels = np.concatenate(labels)
+
+        # Compute metrics per task
+        num_tasks = self.model.num_tasks
+        metrics = {}
+        for t in range(num_tasks):
+            task_preds = preds[:, t]
+            task_labels = labels[:, t]
+            mask = task_labels != -1
+            metrics[t] = auc_scores(task_labels[mask], task_preds[mask])
+        # Compute metrics overall avg
+        avg_auroc = np.mean([metrics[t]["AUROC"] for t in range(num_tasks)])
+        avg_auprc = np.mean([metrics[t]["AUPRC"] for t in range(num_tasks)])
+
+        return EvalResult(
+            loss=total_loss / max(num_batches, 1),
+            avg_auroc=avg_auroc,
+            avg_auprc=avg_auprc,
+            preds=preds,
+            labels=labels,
+            per_task_metrics=metrics,
+        )
+
+    def _step_scheduler(self, val_loss: float) -> None:
+        """Step the appropriate scheduler based on current epoch."""
+        if (
+            self.warmup_scheduler is not None
+            and self.current_epoch < self.config.warmup_epochs
+        ):
+            self.warmup_scheduler.step()
+        else:
+            self.scheduler.step(val_loss)
+
+    @torch.no_grad()
+    def _balance_gradients(self, epsilon: float = 1e-8) -> None:
+        """Balance gradients across modalities.
+
+        Scales each encoder's gradients to the mean norm, preventing
+        one modality from dominating the gradient updates.
+        """
+        tab_norm = self._compute_grad_norm(self.model.tabular_encoder.parameters())
+        emb_norm = self._compute_grad_norm(self.model.embedding_encoder.parameters())
+
+        if tab_norm < epsilon or emb_norm < epsilon:
+            return
+
+        target_norm = (tab_norm + emb_norm) / 2
+
+        tab_scale = target_norm / tab_norm
+        emb_scale = target_norm / emb_norm
+
+        for p in self.model.tabular_encoder.parameters():
+            if p.grad is not None:
+                p.grad.data.mul_(tab_scale)
+
+        for p in self.model.embedding_encoder.parameters():
+            if p.grad is not None:
+                p.grad.data.mul_(emb_scale)
+
+    @staticmethod
+    def _compute_grad_norm(params) -> float:
+        """Compute the total L2 gradient norm for parameters."""
+        total_norm = 0.0
+        for p in params:
+            if p.grad is not None:
+                total_norm += p.grad.data.norm(2).item() ** 2
+        return total_norm**0.5
+
+    def save_checkpoint(self, path: str | Path) -> None:
+        """Save training checkpoint."""
+        checkpoint = {
+            "epoch": self.current_epoch,
+            "model_state_dict": self.model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "scheduler_state_dict": self.scheduler.state_dict(),
+            "best_auroc": self.best_auroc,
+            "patience_counter": self.patience_counter,
+            "history": self.history,
+        }
+        if self.warmup_scheduler is not None:
+            checkpoint["warmup_scheduler_state_dict"] = (
+                self.warmup_scheduler.state_dict()
+            )
+        torch.save(checkpoint, path)
+
+    def load_checkpoint(self, path: str | Path) -> None:
+        """Load training checkpoint to resume training."""
+        checkpoint = torch.load(path, weights_only=False)
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        self.current_epoch = checkpoint["epoch"] + 1  # resume from next epoch
+        self.best_auroc = checkpoint["best_auroc"]
+        self.patience_counter = checkpoint.get("patience_counter", 0)
+        self.history = checkpoint.get("history", self.history)
+
+        if (
+            self.warmup_scheduler is not None
+            and "warmup_scheduler_state_dict" in checkpoint
+        ):
+            self.warmup_scheduler.load_state_dict(
+                checkpoint["warmup_scheduler_state_dict"]
+            )
