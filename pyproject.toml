@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "preduce"
 description = "Predict undesirable cancer events"
-version = "2.0.0"
+version = "2.0.1"
 authors = [
     { name = "Kevin He", email = "Kevin.He@uhn.ca" },
     { name = "Noke Yuan", email = "Baijiang.Yuan@uhn.ca" }
 ]
 dependencies = [
-    "make_clinical_dataset @ git+https://github.com/ml4oncology/make-clinical-dataset.git@v2.0.0"
+    "make_clinical_dataset @ git+https://github.com/ml4oncology/make-clinical-dataset.git@v2.0.1"
 ]
 
 [project.optional-dependencies]
